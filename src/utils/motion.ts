@@ -1,0 +1,152 @@
+import type React from 'react';
+import { prefersReducedMotion } from '../pwa/pwa';
+
+/* ------------------------------------------------------------------ */
+/* Transitions entre écrans (API View Transitions)                    */
+/* Chrome, Edge, Safari 18+ ; ailleurs, simple fondu (voir App.tsx).   */
+/* ------------------------------------------------------------------ */
+
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (update: () => void) => {
+    ready: Promise<void>;
+    finished: Promise<void>;
+    updateCallbackDone: Promise<void>;
+  };
+};
+
+export const supportsViewTransitions = () =>
+  typeof (document as ViewTransitionDocument).startViewTransition === 'function' && !prefersReducedMotion();
+
+/** Applique un changement d'écran avec une transition animée quand le navigateur le permet. */
+export const withViewTransition = (update: () => void) => {
+  const doc = document as ViewTransitionDocument;
+  if (!supportsViewTransitions() || !doc.startViewTransition) {
+    update();
+    return;
+  }
+  const transition = doc.startViewTransition(update);
+  // Une transition interrompue (navigation rapide) n'est pas une erreur.
+  transition.ready.catch(() => undefined);
+  transition.finished.catch(() => undefined);
+  transition.updateCallbackDone.catch(() => undefined);
+};
+
+/** Nom partagé par la photo de la carte cliquée et la grande photo de la fiche produit. */
+export const SHARED_PHOTO = 'product-photo';
+
+/**
+ * Marque la photo d'une carte produit juste avant d'ouvrir la fiche : elle « s'agrandit » vers la fiche.
+ * Un seul élément de la page peut porter ce nom, on le retire donc des autres.
+ */
+export const markSharedPhoto = (element: HTMLElement | null) => {
+  document.querySelectorAll<HTMLElement>('[data-shared-photo]').forEach((el) => el.style.removeProperty('view-transition-name'));
+  if (!element) return;
+  element.dataset.sharedPhoto = '1';
+  element.style.setProperty('view-transition-name', SHARED_PHOTO);
+};
+
+/* ------------------------------------------------------------------ */
+/* Ajout au panier : la photo du produit vole jusqu'au panier          */
+/* ------------------------------------------------------------------ */
+
+/** Élément affiché et au moins en partie visible à l'écran. */
+export const isOnScreen = (element: Element) => {
+  const rect = element.getBoundingClientRect();
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.bottom > 0 &&
+    rect.right > 0 &&
+    rect.top < window.innerHeight &&
+    rect.left < window.innerWidth
+  );
+};
+
+/**
+ * Fait voler une vignette du produit depuis `from` (sa photo ou le bouton touché) jusqu'à l'icône du panier visible
+ * (`data-cart-target` : barre d'onglets ou barre d'achat sur mobile, en-tête sur ordinateur), qui rebondit à l'arrivée.
+ */
+export const flyToCart = (image: string, from: Element | null) => {
+  if (!from || prefersReducedMotion() || typeof Element.prototype.animate !== 'function') return;
+  const target = [...document.querySelectorAll<HTMLElement>('[data-cart-target]')].find(isOnScreen);
+  if (!target) return;
+
+  const start = from.getBoundingClientRect();
+  const end = target.getBoundingClientRect();
+  const size = Math.max(44, Math.min(start.width, start.height, 128));
+  const x = start.left + start.width / 2 - size / 2;
+  const y = start.top + start.height / 2 - size / 2;
+  const dx = end.left + end.width / 2 - size / 2 - x;
+  const dy = end.top + end.height / 2 - size / 2 - y;
+  const duration = Math.round(Math.min(900, Math.max(560, Math.hypot(dx, dy) * 0.9)));
+
+  // Trois niveaux : horizontal, vertical et taille, animés séparément pour obtenir une trajectoire en arc.
+  const flyer = document.createElement('div');
+  flyer.className = 'fly-to-cart';
+  flyer.setAttribute('aria-hidden', 'true');
+  flyer.style.cssText = `left:${x}px;top:${y}px;width:${size}px;height:${size}px`;
+  const vertical = document.createElement('div');
+  const photo = document.createElement('img');
+  photo.src = image;
+  photo.alt = '';
+  vertical.appendChild(photo);
+  flyer.appendChild(vertical);
+  document.body.appendChild(flyer);
+
+  const timing = { duration, fill: 'forwards' } as const;
+  flyer.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${dx}px)` }], {
+    ...timing,
+    easing: 'cubic-bezier(0.4, 0, 0.6, 1)',
+  });
+  // Vers le bas (barre d'onglets), la vignette est d'abord « lancée » vers le haut ; vers le haut (en-tête), elle file.
+  vertical.animate([{ transform: 'translateY(0)' }, { transform: `translateY(${dy}px)` }], {
+    ...timing,
+    easing: dy > 0 ? 'cubic-bezier(0.5, -0.5, 0.75, 1)' : 'cubic-bezier(0.25, 0.6, 0.4, 1)',
+  });
+  const shrink = photo.animate(
+    [
+      { transform: 'scale(1) rotate(0deg)', opacity: 1, borderRadius: '16px' },
+      { transform: 'scale(0.6) rotate(-8deg)', opacity: 1, borderRadius: '50%', offset: 0.5 },
+      { transform: 'scale(0.16) rotate(0deg)', opacity: 0.5, borderRadius: '50%' },
+    ],
+    { ...timing, easing: 'ease-in' }
+  );
+
+  let done = false;
+  const land = () => {
+    if (done) return;
+    done = true;
+    flyer.remove();
+    target.animate(
+      [{ transform: 'scale(1)' }, { transform: 'scale(1.3)' }, { transform: 'scale(0.92)' }, { transform: 'scale(1)' }],
+      { duration: 450, easing: 'ease-out' }
+    );
+  };
+  shrink.onfinish = land;
+  // Sécurité : onglet passé en arrière-plan, animation annulée…
+  window.setTimeout(land, duration + 300);
+};
+
+/* ------------------------------------------------------------------ */
+/* Cartes produit : inclinaison 3D qui suit la souris (ordinateur)     */
+/* ------------------------------------------------------------------ */
+
+const TILT_PROPERTIES = ['--tilt-x', '--tilt-y', '--glare-x', '--glare-y'];
+
+/** À poser sur un élément portant la classe `tilt` (et éventuellement un enfant `tilt-glare`). */
+export const tiltHandlers = {
+  onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType !== 'mouse' || prefersReducedMotion()) return;
+    const element = event.currentTarget;
+    const rect = element.getBoundingClientRect();
+    const px = (event.clientX - rect.left) / rect.width;
+    const py = (event.clientY - rect.top) / rect.height;
+    element.style.setProperty('--tilt-x', `${((0.5 - py) * 8).toFixed(2)}deg`);
+    element.style.setProperty('--tilt-y', `${((px - 0.5) * 10).toFixed(2)}deg`);
+    element.style.setProperty('--glare-x', `${(px * 100).toFixed(1)}%`);
+    element.style.setProperty('--glare-y', `${(py * 100).toFixed(1)}%`);
+  },
+  onPointerLeave: (event: React.PointerEvent<HTMLElement>) => {
+    TILT_PROPERTIES.forEach((name) => event.currentTarget.style.removeProperty(name));
+  },
+};

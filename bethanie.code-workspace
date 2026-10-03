@@ -1,0 +1,34 @@
+{
+  "folders": [
+    {
+      "name": "bethanie",
+      "path": "."
+    }
+  ],
+  "settings": {
+    // Dossiers techniques masqués dans l'explorateur (ils existent toujours sur le disque).
+    "files.exclude": {
+      "**/node_modules": true,
+      "dist": true
+    },
+    "search.exclude": {
+      "server/data": true
+    }
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Béthanie : lancer l'application",
+        "type": "npm",
+        "script": "dev",
+        "problemMatcher": [],
+        "group": { "kind": "build", "isDefault": true },
+        "presentation": { "reveal": "always", "panel": "dedicated" }
+      }
+    ]
+  },
+  "extensions": {
+    "recommendations": ["bierner.markdown-mermaid", "bradlc.vscode-tailwindcss"]
+  }
+}

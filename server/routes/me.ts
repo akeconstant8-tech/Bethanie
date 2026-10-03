@@ -1,0 +1,147 @@
+import crypto from 'node:crypto';
+import { Router } from 'express';
+import { z } from 'zod';
+import { PAYMENT_OPTIONS } from '../../src/utils/commerce.ts';
+import { currentUser } from '../auth.ts';
+import { db, transaction, type Row } from '../db.ts';
+import { badRequest, conflict, notFound, parse } from '../http.ts';
+import { loadMe } from '../serializers.ts';
+
+/** Profil, adresses, moyens de paiement et favoris de l'utilisateur connecté. */
+export const meRouter = Router();
+
+const ProfileSchema = z.object({
+  name: z.string().trim().min(2, 'Indiquez votre nom complet.').max(80),
+  email: z.string().trim().toLowerCase().email('Adresse e-mail invalide.').max(120),
+  phone: z.string().trim().max(30).refine((v) => v.replace(/\D/g, '').length >= 8, 'Numéro de téléphone invalide.'),
+  location: z.string().trim().max(120),
+});
+
+meRouter.patch('/', (req, res) => {
+  const user = currentUser(req);
+  const data = parse(ProfileSchema, req.body);
+  if (db.prepare('SELECT 1 FROM users WHERE email = ? AND id <> ?').get(data.email, user.id)) {
+    throw conflict('Cette adresse e-mail est déjà utilisée par un autre compte.');
+  }
+  db.prepare('UPDATE users SET name = ?, email = ?, phone = ?, location = ? WHERE id = ?').run(
+    data.name, data.email, data.phone, data.location, user.id
+  );
+  res.json({ user: loadMe(user.id) });
+});
+
+/* ---------- Adresses & moyens de paiement (même logique « par défaut ») ---------- */
+
+type OwnedTable = 'addresses' | 'payment_methods';
+
+const ensureOwned = (table: OwnedTable, id: string, userId: string) => {
+  const row = db.prepare(`SELECT is_default FROM ${table} WHERE id = ? AND user_id = ?`).get(id, userId) as Row | undefined;
+  if (!row) throw notFound();
+  return row;
+};
+
+const setDefault = (table: OwnedTable, id: string, userId: string) =>
+  transaction(() => {
+    db.prepare(`UPDATE ${table} SET is_default = 0 WHERE user_id = ?`).run(userId);
+    db.prepare(`UPDATE ${table} SET is_default = 1 WHERE id = ? AND user_id = ?`).run(id, userId);
+  });
+
+const removeOwned = (table: OwnedTable, id: string, userId: string) =>
+  transaction(() => {
+    const row = ensureOwned(table, id, userId);
+    db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
+    if (row.is_default) {
+      // La plus ancienne entrée restante devient celle par défaut.
+      db.prepare(
+        `UPDATE ${table} SET is_default = 1 WHERE id = (SELECT id FROM ${table} WHERE user_id = ? ORDER BY created_at LIMIT 1)`
+      ).run(userId);
+    }
+  });
+
+const hasAny = (table: OwnedTable, userId: string) =>
+  Boolean(db.prepare(`SELECT 1 FROM ${table} WHERE user_id = ?`).get(userId));
+
+const AddressSchema = z.object({
+  title: z.string().trim().max(40).default('Adresse'),
+  address: z.string().trim().min(8, 'Indiquez une adresse complète.').max(300, 'Adresse trop longue.'),
+});
+
+meRouter.post('/addresses', (req, res) => {
+  const user = currentUser(req);
+  const data = parse(AddressSchema, req.body);
+  const count = (db.prepare('SELECT COUNT(*) AS n FROM addresses WHERE user_id = ?').get(user.id) as Row).n;
+  if (Number(count) >= 20) throw badRequest('Vous avez atteint le nombre maximum d’adresses.');
+  db.prepare('INSERT INTO addresses (id, user_id, title, address, is_default) VALUES (?, ?, ?, ?, ?)').run(
+    crypto.randomUUID(), user.id, data.title || 'Adresse', data.address, hasAny('addresses', user.id) ? 0 : 1
+  );
+  res.status(201).json({ user: loadMe(user.id) });
+});
+
+meRouter.post('/addresses/:id/default', (req, res) => {
+  const user = currentUser(req);
+  ensureOwned('addresses', req.params.id, user.id);
+  setDefault('addresses', req.params.id, user.id);
+  res.json({ user: loadMe(user.id) });
+});
+
+meRouter.delete('/addresses/:id', (req, res) => {
+  const user = currentUser(req);
+  removeOwned('addresses', req.params.id, user.id);
+  res.json({ user: loadMe(user.id) });
+});
+
+const SAVABLE_PAYMENTS = PAYMENT_OPTIONS.filter((o) => o.id !== 'Paiement à la livraison').map((o) => o.id);
+
+const PaymentSchema = z.object({
+  type: z.string().refine((v) => SAVABLE_PAYMENTS.includes(v), 'Moyen de paiement inconnu.'),
+  number: z.string().trim().min(4, 'Numéro invalide.').max(30),
+});
+
+meRouter.post('/payment-methods', (req, res) => {
+  const user = currentUser(req);
+  const data = parse(PaymentSchema, req.body);
+  const digits = data.number.replace(/\D/g, '');
+  let number: string;
+  if (data.type === 'Carte bancaire') {
+    // On ne conserve jamais un numéro de carte complet : seulement les 4 derniers chiffres.
+    if (digits.length < 12) throw badRequest('Numéro de carte invalide.');
+    number = `•••• •••• •••• ${digits.slice(-4)}`;
+  } else {
+    if (digits.length < 8) throw badRequest('Numéro de téléphone invalide.');
+    number = data.number;
+  }
+  db.prepare('INSERT INTO payment_methods (id, user_id, type, number, is_default) VALUES (?, ?, ?, ?, ?)').run(
+    crypto.randomUUID(), user.id, data.type, number, hasAny('payment_methods', user.id) ? 0 : 1
+  );
+  res.status(201).json({ user: loadMe(user.id) });
+});
+
+meRouter.post('/payment-methods/:id/default', (req, res) => {
+  const user = currentUser(req);
+  ensureOwned('payment_methods', req.params.id, user.id);
+  setDefault('payment_methods', req.params.id, user.id);
+  res.json({ user: loadMe(user.id) });
+});
+
+meRouter.delete('/payment-methods/:id', (req, res) => {
+  const user = currentUser(req);
+  removeOwned('payment_methods', req.params.id, user.id);
+  res.json({ user: loadMe(user.id) });
+});
+
+/* ---------- Favoris ---------- */
+
+const WishlistSchema = z.object({ productIds: z.array(z.string().max(100)).max(500) });
+
+meRouter.put('/wishlist', (req, res) => {
+  const user = currentUser(req);
+  const { productIds } = parse(WishlistSchema, req.body);
+  transaction(() => {
+    db.prepare('DELETE FROM wishlist WHERE user_id = ?').run(user.id);
+    const insert = db.prepare(
+      `INSERT OR IGNORE INTO wishlist (user_id, product_id)
+       SELECT ?, id FROM products WHERE id = ? AND deleted_at IS NULL`
+    );
+    for (const id of productIds) insert.run(user.id, id);
+  });
+  res.json({ wishlist: loadMe(user.id).wishlist });
+});

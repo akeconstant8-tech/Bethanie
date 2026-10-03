@@ -1,0 +1,109 @@
+{
+  "id": "/",
+  "name": "Béthanie — Marketplace africaine",
+  "short_name": "Béthanie",
+  "description": "Achetez et vendez des produits authentiques d’Afrique. Paiement par Orange Money, MTN, Moov, Wave ou carte.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "portrait",
+  "background_color": "#F8F5EF",
+  "theme_color": "#0F5132",
+  "categories": [
+    "shopping",
+    "business",
+    "lifestyle"
+  ],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Mon panier",
+      "short_name": "Panier",
+      "url": "/#/panier",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Catégories",
+      "url": "/#/categories",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Suivi de commande",
+      "short_name": "Suivi",
+      "url": "/#/suivi",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/accueil-mobile.webp",
+      "sizes": "780x1688",
+      "type": "image/webp",
+      "form_factor": "narrow",
+      "label": "Accueil : bannière, catégories et produits populaires"
+    },
+    {
+      "src": "/screenshots/categories-mobile.webp",
+      "sizes": "780x1688",
+      "type": "image/webp",
+      "form_factor": "narrow",
+      "label": "Les 8 catégories illustrées"
+    },
+    {
+      "src": "/screenshots/accueil-ordinateur.webp",
+      "sizes": "1280x800",
+      "type": "image/webp",
+      "form_factor": "wide",
+      "label": "Béthanie sur ordinateur"
+    }
+  ]
+}

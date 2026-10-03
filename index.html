@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Béthanie — la marketplace africaine : achetez et vendez des produits authentiques, payez par Wave, Orange Money, MTN ou carte." />
+    <title>Béthanie — Marketplace africaine</title>
+
+    <!-- Application installable (PWA) -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0F5132" />
+    <meta name="application-name" content="Béthanie" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Béthanie" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+
+    <!-- Polices et icônes servies par le site : pas de dépendance externe, disponibles hors ligne -->
+    <link rel="preload" href="/fonts/poppins-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/poppins-600-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/cinzel-700-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+
+    <!-- Écran de démarrage : visible pendant le chargement, retiré par l'application (src/pwa/pwa.ts) -->
+    <style>
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: #f8f5ef;
+        transition: opacity 0.4s ease, visibility 0.4s ease;
+      }
+      #boot-splash.is-hidden {
+        opacity: 0;
+        visibility: hidden;
+      }
+      #boot-splash .boot-logo {
+        position: relative;
+        width: 112px;
+        height: 112px;
+        animation: boot-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+      }
+      #boot-splash .boot-glow {
+        position: absolute;
+        inset: -30%;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(229, 169, 60, 0.35) 0%, rgba(229, 169, 60, 0) 65%);
+        animation: boot-glow 1.6s ease-in-out infinite alternate;
+      }
+      #boot-splash svg {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      #boot-splash .boot-cart {
+        stroke-dasharray: 160;
+        stroke-dashoffset: 160;
+        animation: boot-draw 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.3s forwards;
+      }
+      #boot-splash .boot-wheel {
+        transform-box: fill-box;
+        transform-origin: center;
+        transform: scale(0);
+        animation: boot-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) 0.85s forwards;
+      }
+      #boot-splash .boot-name {
+        font-family: 'Cinzel', 'Times New Roman', serif;
+        font-weight: 700;
+        font-size: 30px;
+        letter-spacing: 0.08em;
+        color: #a3701a;
+        animation: boot-rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s both;
+      }
+      #boot-splash .boot-bar {
+        width: 96px;
+        height: 3px;
+        border-radius: 3px;
+        overflow: hidden;
+        background: rgba(15, 81, 50, 0.12);
+      }
+      #boot-splash .boot-bar span {
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: 3px;
+        background: #0f5132;
+        animation: boot-bar 1.1s ease-in-out infinite;
+      }
+      @keyframes boot-in {
+        from { opacity: 0; transform: scale(0.85); }
+      }
+      @keyframes boot-rise {
+        from { opacity: 0; transform: translateY(8px); }
+      }
+      @keyframes boot-glow {
+        from { opacity: 0.5; transform: scale(0.9); }
+        to { opacity: 1; transform: scale(1.05); }
+      }
+      @keyframes boot-draw {
+        to { stroke-dashoffset: 0; }
+      }
+      @keyframes boot-pop {
+        to { transform: scale(1); }
+      }
+      @keyframes boot-bar {
+        from { transform: translateX(-100%); }
+        to { transform: translateX(250%); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash *,
+        #boot-splash .boot-cart,
+        #boot-splash .boot-wheel {
+          animation: none !important;
+          stroke-dashoffset: 0;
+          transform: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="boot-splash" role="status" aria-label="Béthanie">
+      <div class="boot-logo">
+        <div class="boot-glow"></div>
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <defs>
+            <linearGradient id="boot-gold" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#F4CD6E" />
+              <stop offset="55%" stop-color="#E5A93C" />
+              <stop offset="100%" stop-color="#B87C17" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M21.6 7.1 32.6 5.9 42.4 5.5 41.4 9.5 45.4 10.8 52.6 14 53.9 11.8 60.1 12.3 67.6 12.5 69.5 14.4 75.4 27.4 78.3 32.4 83 36.3 85.1 38.9 93 37.1 93.1 38.9 85.4 49.4 78.5 56.9 78 60.4 79.5 65.6 72.4 76.6 69.6 84.4 67.6 89.3 60.9 94.4 53.9 95.4 51.9 94.4 47 80.6 45.6 67.6 45.4 62.9 44.3 59.4 40.6 51.4 41 46.9 36.4 46.5 33.1 43.9 28.9 44.9 26.4 46 23.9 45.3 19.3 46.4 15.4 44 12.4 41.3 8.9 37.5 7 33.5 8.9 29.4 7.6 25.9 10.8 19.4 16.9 13.9 19.4 9.9Z"
+            fill="url(#boot-gold)"
+            stroke="url(#boot-gold)"
+            stroke-width="3"
+            stroke-linejoin="round"
+          />
+          <ellipse cx="88" cy="75" rx="2.6" ry="7.5" transform="rotate(18 88 75)" fill="#D19A2E" />
+          <path class="boot-cart" d="M31 24h7l7 22h22l6-15H42" fill="none" stroke="#0F5132" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+          <circle class="boot-wheel" cx="49" cy="53" r="3.6" fill="#0F5132" />
+          <circle class="boot-wheel" cx="64" cy="53" r="3.6" fill="#0F5132" />
+        </svg>
+      </div>
+      <div class="boot-name">BÉTHANIE</div>
+      <div class="boot-bar"><span></span></div>
+    </div>
+    <div id="root"></div>
+    <noscript>Béthanie a besoin de JavaScript pour fonctionner. / Béthanie requires JavaScript.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
