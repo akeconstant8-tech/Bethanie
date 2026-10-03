@@ -41,7 +41,7 @@ avec les données de démonstration (13 produits, 5 boutiques, 2 commandes).
 
 | Commande | Rôle |
 |---|---|
-| `npm run dev` | Lance l’API (port 4000, rechargée à chaque modification) **et** le site (port 3000) |
+| `npm run dev` | Lance l’API (port 4000, rechargée à chaque modification) **et** le site (port 3000). Refuse de démarrer si Béthanie tourne déjà dans un autre terminal (`scripts/check-dev.mjs`) : deux lancements font se disputer le port 4000 aux deux API |
 | `npm run dev:api` / `npm run dev:web` | Lance l’un des deux seulement |
 | `npm run build` | Vérifie les types (site + serveur) et compile le site dans `dist/` |
 | `npm start` | Production : Express sert l’API **et** le site compilé sur le port 4000 |

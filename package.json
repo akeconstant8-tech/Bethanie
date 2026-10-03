@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/check-dev.mjs",
     "dev": "concurrently -k -n api,web -c green,yellow \"npm:dev:api\" \"npm:dev:web\"",
     "dev:web": "vite",
     "dev:api": "tsx watch --clear-screen=false server/index.ts",
