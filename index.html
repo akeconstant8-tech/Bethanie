@@ -7,7 +7,9 @@
     <title>Béthanie — Marketplace africaine</title>
 
     <!-- Application installable (PWA) -->
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- use-credentials : sur les adresses de déploiement protégées par Vercel, le manifeste doit être demandé avec le
+         cookie de connexion Vercel, sinon il est redirigé vers vercel.com/sso-api et bloqué (erreur CORS). -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <meta name="theme-color" content="#0F5132" />
     <meta name="application-name" content="Béthanie" />
     <meta name="mobile-web-app-capable" content="yes" />

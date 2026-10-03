@@ -1,6 +1,6 @@
 # Architecture — Béthanie
 
-> Version 1.5 — 3 octobre 2026. Décrit le code tel qu’il est dans ce dépôt.
+> Version 1.6 — 3 octobre 2026. Décrit le code tel qu’il est dans ce dépôt.
 > Besoins fonctionnels et règles métier : voir [CAHIER_DES_CHARGES.md](CAHIER_DES_CHARGES.md).
 > Maquette de référence de l’interface : [docs/maquette/maquette-ux-ui.jpg](maquette/maquette-ux-ui.jpg).
 
@@ -12,6 +12,7 @@
 | 1.3 | 3 octobre 2026 | Application installable (PWA) et fonctionnement hors ligne (§4.7) ; motion design (§4.8) ; performance (§4.9) ; polices Poppins et Cinzel et icônes servies par le site ; en-têtes de cache et CSP resserrée (§5, §9) |
 | 1.4 | 3 octobre 2026 | Section « Boutiques certifiées » et lien « Boutiques » retirés ; la liste des boutiques (`GET /shops`) n’est plus chargée par le site (§4.3, §4.7) |
 | 1.5 | 3 octobre 2026 | Motion design renforcé (§4.8) : transitions orientées sur mobile, bannière animée, vol vers le panier, indicateur glissant de la barre d’onglets, inclinaison 3D des cartes, confettis au paiement ; réglage Windows « Effets d’animation » expliqué |
+| 1.6 | 3 octobre 2026 | Déploiement Vercel : l’API devient une fonction Vercel (`server/vercel.ts`, `scripts/build-vercel.mjs`, `vercel.json`) ; sans elle, `/api/*` répondait 404 et aucun produit ni photo ne s’affichait ; limite L22 |
 
 Les diagrammes sont écrits en [Mermaid](https://mermaid.js.org/) : GitHub les affiche directement ; dans
 VS Code, installez une extension d’aperçu Mermaid.
@@ -791,6 +792,7 @@ Le fichier `.env.local` hérité d’AI Studio (clé Gemini) n’est plus utilis
 | L19 | La pastille « hors connexion » suit l’état réseau annoncé par le navigateur | Un réseau présent mais sans accès au serveur n’est pas signalé comme « hors connexion » (les erreurs s’affichent normalement) | Sonder `/api/health` en cas d’échecs répétés |
 | L20 | Installation sur iPhone / iPad manuelle | Safari ne propose pas de bouton d’installation ; on affiche les instructions | Limite d’Apple |
 | L21 | Font Awesome complet (≈ 180 Ko pour les polices pleines et régulières) | Poids au premier chargement (ensuite en cache) | Sous-ensemble limité aux icônes utilisées, ou icônes SVG |
+| L22 | Sur Vercel, la base SQLite et les photos importées sont dans `/tmp` de la fonction | Données de démonstration recréées à chaque démarrage d’instance : comptes, commandes, boutiques et photos ajoutés en ligne disparaissent au bout d’un moment, et deux instances simultanées ne partagent pas leurs données | Base hébergée (Turso / libSQL, compatible SQLite, ou Postgres) et stockage des photos (Vercel Blob), ou API sur un serveur avec disque (Render, Railway, VPS) appelée par Vercel |
 
 ---
 

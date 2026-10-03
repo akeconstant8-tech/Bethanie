@@ -128,6 +128,21 @@ COOKIE_SECURE=true DEMO_MODE=false npm start
 
 Sous Windows PowerShell : `$env:COOKIE_SECURE='true'; $env:DEMO_MODE='false'; npm start`.
 
+### Sur Vercel
+
+Le dépôt GitHub est relié à Vercel (https://bethanie.vercel.app) : chaque envoi sur `main` redéploie le site.
+`vercel.json` fait lancer `npm run vercel-build`, qui produit `.vercel/output` (format « Build Output API ») :
+
+- le site compilé, avec toutes les images de `public/` ;
+- l’API Express + SQLite (`server/vercel.ts`) en **fonction Vercel**, qui reçoit `/api/*` et `/uploads/*`.
+
+Sans cette fonction, Vercel ne sert que les fichiers statiques : l’API répond 404 et le site affiche
+« Le serveur Béthanie est injoignable », sans produits ni photos.
+
+⚠️ Sur Vercel, la base est créée dans `/tmp` à chaque démarrage d’instance, avec les données de démonstration :
+comptes, commandes, boutiques et photos importées y sont **temporaires** (voir la limite L22 de l’architecture).
+Pour garder les données, il faut une base hébergée ou un serveur avec disque (voir ci-dessous).
+
 Placez un proxy HTTPS (Nginx, Caddy…) devant le port 4000. Avant d’ouvrir au public, traitez les points de la
 section « Limites connues » de l’[architecture](docs/ARCHITECTURE.md#12-limites-connues-et-actions-avant-la-mise-en-production),
 en particulier :

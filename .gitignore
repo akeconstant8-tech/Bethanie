@@ -9,6 +9,8 @@ lerna-debug.log*
 
 node_modules
 dist
+# Sortie de « npm run vercel-build » (déploiement Vercel)
+.vercel
 
 # Base SQLite et photos importées (données locales)
 server/data/
