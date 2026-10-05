@@ -8,11 +8,15 @@
  * HTTPS) sont posées par défaut en tête du fichier compilé, avant la lecture de server/config.ts.
  */
 import { createApp } from './app.ts';
-import { seedIfEmpty } from './seed.ts';
+import { databaseLabel, hostedDatabase } from './db.ts';
 
-// Base vide au démarrage d'une instance : on la remplit avec les données de démonstration.
-seedIfEmpty();
+console.log(
+  hostedDatabase
+    ? `[api] Base de données permanente : ${databaseLabel}.`
+    : '[api] Attention : base de données TEMPORAIRE (/tmp, effacée au redémarrage) — définir TURSO_DATABASE_URL et TURSO_AUTH_TOKEN.'
+);
 
+// Les données sont préparées avant la première réponse de l'API (voir createApp et startup.ts).
 const app = createApp();
 // Derrière le proxy de Vercel : vraie adresse IP du visiteur (limitation des tentatives de connexion).
 app.set('trust proxy', 1);

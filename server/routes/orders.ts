@@ -15,16 +15,13 @@ import {
 } from '../../src/utils/commerce.ts';
 import { createGuestAccount, currentUser } from '../auth.ts';
 import { config } from '../config.ts';
-import { db, type Row } from '../db.ts';
+import { db } from '../db.ts';
 import { badRequest, conflict, forbidden, notFound, parse } from '../http.ts';
 import { isGeniusPay, isSimulation, publicUrl, reconcileOrderPayment, startPayment } from '../payments.ts';
 import { getProduct, loadOrders } from '../serializers.ts';
-import { acquireCommission, backfillSettlements, cancelOrder, guarded, settleOrder } from '../transactions.ts';
+import { acquireCommission, cancelOrder, guarded, settleOrder } from '../transactions.ts';
 
 export const ordersRouter = Router();
-
-// Commandes antérieures au contrôle des transactions : répartition calculée une fois au démarrage.
-backfillSettlements();
 
 const phoneDigits = (v: string) => v.replace(/\D/g, '').length;
 
@@ -51,38 +48,37 @@ const CheckoutSchema = z.object({
   customerName: z.string().trim().max(80).optional(),
 });
 
-const newOrderId = () => {
+const newOrderId = async () => {
   for (;;) {
     const id = `BTH-${crypto.randomInt(100000, 1000000)}`;
-    if (!db.prepare('SELECT 1 FROM orders WHERE id = ?').get(id)) return id;
+    if (!(await db.get('SELECT 1 FROM orders WHERE id = ?', id))) return id;
   }
 };
 
-const getOrderRow = (id: string) => {
-  const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(id) as Row | undefined;
+const getOrderRow = async (id: string) => {
+  const row = await db.get('SELECT * FROM orders WHERE id = ?', id);
   if (!row) throw notFound('Commande introuvable.');
   return row;
 };
 
-const shopOf = (userId: string) =>
-  db.prepare('SELECT id FROM shops WHERE owner_id = ?').get(userId) as Row | undefined;
+const shopOf = (userId: string) => db.get('SELECT id FROM shops WHERE owner_id = ?', userId);
 
-const orderHasShop = (orderId: string, shopId: string) =>
-  Boolean(db.prepare('SELECT 1 FROM order_items WHERE order_id = ? AND shop_id = ?').get(orderId, shopId));
+const orderHasShop = async (orderId: string, shopId: string) =>
+  Boolean(await db.get('SELECT 1 FROM order_items WHERE order_id = ? AND shop_id = ?', orderId, shopId));
 
 /* ---------- Client ---------- */
 
-ordersRouter.get('/orders', (req, res) => {
+ordersRouter.get('/orders', async (req, res) => {
   const user = currentUser(req);
-  const rows = db.prepare('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC').all(user.id) as Row[];
-  res.json({ orders: loadOrders(rows) });
+  const rows = await db.all('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC', user.id);
+  res.json({ orders: await loadOrders(rows) });
 });
 
-ordersRouter.get('/orders/:id', (req, res) => {
+ordersRouter.get('/orders/:id', async (req, res) => {
   const user = currentUser(req);
-  const row = getOrderRow(req.params.id);
+  const row = await getOrderRow(String(req.params.id));
   if (row.user_id !== user.id && user.role !== 'admin') throw notFound('Commande introuvable.');
-  res.json({ order: loadOrders([row])[0] });
+  res.json({ order: (await loadOrders([row]))[0] });
 });
 
 // Au plus 10 commandes par heure, par compte quand il y en a un, sinon par adresse IP (achat invité).
@@ -112,8 +108,9 @@ ordersRouter.post('/orders', orderLimiter, async (req, res) => {
   }
 
   // Les prix viennent toujours de la base, jamais du navigateur.
-  const lines = data.items.map((item) => {
-    const product = getProduct(item.productId);
+  const products = await Promise.all(data.items.map((item) => getProduct(item.productId)));
+  const lines = data.items.map((item, index) => {
+    const product = products[index];
     if (!product) throw conflict('Un produit de votre panier n’est plus disponible. Mettez votre panier à jour.');
     const sizes = product.availableSizes ?? [];
     if (sizes.length > 1 && !item.size) throw badRequest(`Choisissez une taille pour « ${product.title} ».`);
@@ -149,38 +146,34 @@ ordersRouter.post('/orders', orderLimiter, async (req, res) => {
   }
   const total = subtotal + deliveryFee - discount;
   const cashOnDelivery = data.paymentMethod === 'Paiement à la livraison';
-  const id = newOrderId();
+  const id = await newOrderId();
   // La commande est désormais certaine d'être créée : on peut ouvrir la session invitée sans risque
   // de profil orphelin. Jamais de connexion Google demandée ici.
-  const user = req.user ?? createGuestAccount(res, guestName!, data.contactPhone);
+  const user = req.user ?? (await createGuestAccount(res, guestName!, data.contactPhone));
 
-  guarded(() => {
-    db.prepare(
+  await guarded(async () => {
+    await db.run(
       `INSERT INTO orders (id, user_id, status, payment_status, payment_method, phone_number, contact_phone, delivery_method,
          city, shipping_address, subtotal, delivery_fee, discount, total, promo_code, customer_name)
-       VALUES (?, ?, 'confirmée', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
+       VALUES (?, ?, 'confirmée', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id, user.id, cashOnDelivery ? 'à_la_livraison' : 'en_attente', data.paymentMethod,
       payment.needsPhone ? data.paymentPhone! : data.contactPhone, data.contactPhone, data.deliveryMethod, data.city,
       data.shippingAddress, subtotal, deliveryFee, discount, total, promoCode, user.name
     );
     for (const line of lines) {
-      db.prepare(
+      await db.run(
         `INSERT INTO order_items (order_id, product_id, shop_id, quantity, unit_price, color, size, product_snapshot)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         id, line.product.id, line.product.vendor.id, line.quantity, line.product.price,
         line.color ?? null, line.size ?? null, JSON.stringify(line.product)
       );
       // Réservation du stock ; la condition protège contre deux achats simultanés du dernier article.
-      const { changes } = db
-        .prepare('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?')
-        .run(line.quantity, line.product.id, line.quantity);
+      const { changes } = await db.run('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?', line.quantity, line.product.id, line.quantity);
       if (changes !== 1) throw conflict(`« ${line.product.title} » vient d’être épuisé.`);
     }
-    db.prepare(`INSERT INTO order_events (order_id, status) VALUES (?, 'confirmée')`).run(id);
+    await db.run(`INSERT INTO order_events (order_id, status) VALUES (?, 'confirmée')`, id);
     // Contrôle des transactions : commission de 5 % par boutique, vérification des montants, journal scellé.
-    settleOrder(id);
+    await settleOrder(id);
   });
 
   // Paiement en ligne : création du paiement GeniusPay ; en cas d'échec, la commande est annulée (stock rendu).
@@ -198,29 +191,29 @@ ordersRouter.post('/orders', orderLimiter, async (req, res) => {
         },
         returnUrl: `${publicUrl(req)}/#/suivi/${encodeURIComponent(id)}`,
       });
-      db.prepare('UPDATE orders SET payment_reference = ?, payment_url = ? WHERE id = ?').run(started.reference, started.url, id);
+      await db.run('UPDATE orders SET payment_reference = ?, payment_url = ? WHERE id = ?', started.reference, started.url, id);
     } catch (error) {
-      cancelOrder(id, 'paiement en ligne impossible à démarrer');
+      await cancelOrder(id, 'paiement en ligne impossible à démarrer');
       throw error;
     }
   }
 
-  res.status(201).json({ order: loadOrders([getOrderRow(id)])[0] });
+  res.status(201).json({ order: (await loadOrders([await getOrderRow(id)]))[0] });
 });
 
 /** Paiement simulé : remplacé par le webhook de l'agrégateur en production (voir payments.ts). */
-ordersRouter.post('/orders/:id/pay', (req, res) => {
+ordersRouter.post('/orders/:id/pay', async (req, res) => {
   const user = currentUser(req);
   if (!isSimulation()) throw notFound();
-  const row = getOrderRow(req.params.id);
+  const row = await getOrderRow(String(req.params.id));
   if (row.user_id !== user.id) throw notFound('Commande introuvable.');
   if (row.payment_status === 'en_attente') {
-    guarded(() => {
-      db.prepare(`UPDATE orders SET payment_status = 'payé' WHERE id = ?`).run(String(row.id));
-      acquireCommission(String(row.id), 'en ligne');
+    await guarded(async () => {
+      await db.run(`UPDATE orders SET payment_status = 'payé' WHERE id = ?`, String(row.id));
+      await acquireCommission(String(row.id), 'en ligne');
     });
   }
-  res.json({ order: loadOrders([getOrderRow(String(row.id))])[0] });
+  res.json({ order: (await loadOrders([await getOrderRow(String(row.id))]))[0] });
 });
 
 // Chaque vérification interroge GeniusPay : le suivi en fait au plus 9 par commande ; 30 par minute et par compte
@@ -237,21 +230,21 @@ const paymentCheckLimiter = rateLimit({
 /** Retour de la page de paiement : le serveur demande le statut à GeniusPay et met la commande à jour. */
 ordersRouter.post('/orders/:id/payment/check', paymentCheckLimiter, async (req, res) => {
   const user = currentUser(req);
-  const row = getOrderRow(String(req.params.id));
+  const row = await getOrderRow(String(req.params.id));
   if (row.user_id !== user.id) throw notFound('Commande introuvable.');
   if (row.payment_reference && row.payment_status === 'en_attente') await reconcileOrderPayment(String(row.id));
-  res.json({ order: loadOrders([getOrderRow(String(row.id))])[0] });
+  res.json({ order: (await loadOrders([await getOrderRow(String(row.id))]))[0] });
 });
 
 /**
  * Fait avancer une commande d'une étape. Autorisé pour : un vendeur dont un produit figure
  * dans la commande, un administrateur, ou le client lui-même en mode démo.
  */
-ordersRouter.post('/orders/:id/advance', (req, res) => {
+ordersRouter.post('/orders/:id/advance', async (req, res) => {
   const user = currentUser(req);
-  const row = getOrderRow(req.params.id);
-  const shop = shopOf(user.id);
-  const isSeller = shop ? orderHasShop(String(row.id), String(shop.id)) : false;
+  const row = await getOrderRow(String(req.params.id));
+  const shop = await shopOf(user.id);
+  const isSeller = shop ? await orderHasShop(String(row.id), String(shop.id)) : false;
   const isOwner = row.user_id === user.id;
   if (!isSeller && user.role !== 'admin' && !(config.demoMode && isOwner)) {
     throw isOwner ? forbidden('Seul le vendeur peut faire avancer la commande.') : notFound('Commande introuvable.');
@@ -263,36 +256,35 @@ ordersRouter.post('/orders/:id/advance', (req, res) => {
   const target = nextStatus(row.status as OrderStatus);
   if (!target) throw conflict('Cette commande est déjà livrée.');
 
-  guarded(() => {
-    db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(target, String(row.id));
-    db.prepare('INSERT INTO order_events (order_id, status) VALUES (?, ?)').run(String(row.id), target);
+  await guarded(async () => {
+    await db.run('UPDATE orders SET status = ? WHERE id = ?', target, String(row.id));
+    await db.run('INSERT INTO order_events (order_id, status) VALUES (?, ?)', String(row.id), target);
     if (target === 'en_livraison' && !row.driver) {
       const driver = DRIVERS[crypto.randomInt(DRIVERS.length)];
       const eta = `Aujourd’hui avant ${formatTime(new Date(Date.now() + 90 * 60 * 1000))}`;
-      db.prepare('UPDATE orders SET driver = ? WHERE id = ?').run(JSON.stringify({ ...driver, eta }), String(row.id));
+      await db.run('UPDATE orders SET driver = ? WHERE id = ?', JSON.stringify({ ...driver, eta }), String(row.id));
     }
     if (target === 'livrée' && row.payment_status === 'à_la_livraison') {
-      db.prepare(`UPDATE orders SET payment_status = 'payé' WHERE id = ?`).run(String(row.id));
-      acquireCommission(String(row.id), 'à la livraison');
+      await db.run(`UPDATE orders SET payment_status = 'payé' WHERE id = ?`, String(row.id));
+      await acquireCommission(String(row.id), 'à la livraison');
     }
   });
 
-  const updated = getOrderRow(String(row.id));
-  const order = isOwner || user.role === 'admin' ? loadOrders([updated])[0] : loadOrders([updated], String(shop!.id))[0];
+  const updated = await getOrderRow(String(row.id));
+  const order = isOwner || user.role === 'admin' ? (await loadOrders([updated]))[0] : (await loadOrders([updated], String(shop!.id)))[0];
   res.json({ order, message: `Commande ${row.id} : ${STATUS_LABELS[target]}` });
 });
 
 /* ---------- Vendeur ---------- */
 
-ordersRouter.get('/seller/orders', (req, res) => {
+ordersRouter.get('/seller/orders', async (req, res) => {
   const user = currentUser(req);
-  const shop = shopOf(user.id);
+  const shop = await shopOf(user.id);
   if (!shop) throw forbidden('Ouvrez d’abord votre boutique dans l’espace vendeur.');
-  const rows = db
-    .prepare(
-      `SELECT * FROM orders WHERE id IN (SELECT order_id FROM order_items WHERE shop_id = ?)
-       ORDER BY created_at DESC`
-    )
-    .all(String(shop.id)) as Row[];
-  res.json({ orders: loadOrders(rows, String(shop.id)) });
+  const rows = await db.all(
+    `SELECT * FROM orders WHERE id IN (SELECT order_id FROM order_items WHERE shop_id = ?)
+     ORDER BY created_at DESC`,
+    String(shop.id)
+  );
+  res.json({ orders: await loadOrders(rows, String(shop.id)) });
 });

@@ -15,6 +15,7 @@ import { authRouter } from './routes/auth.ts';
 import { catalogRouter } from './routes/catalog.ts';
 import { meRouter } from './routes/me.ts';
 import { ordersRouter } from './routes/orders.ts';
+import { prepareData } from './startup.ts';
 
 /** Limite de requêtes par minute et par adresse IP (vraie adresse du visiteur sur Vercel : trust proxy). */
 const limited = (perMinute: number, error: string): RequestHandler =>
@@ -34,6 +35,13 @@ export const createApp = () => {
   app.use(cookieParser());
 
   /* ---------- API ---------- */
+  // Données prêtes avant toute réponse de l'API (tables, données de démonstration si la base est vide). Déjà fait au
+  // démarrage du serveur local ; sur Vercel, à la première requête d'une instance (et réessayé si la base était
+  // injoignable).
+  app.use('/api', async (_req, _res, next) => {
+    await prepareData();
+    next();
+  });
   // Notifications de paiement GeniusPay : appelées par GeniusPay (signature vérifiée), avant l'exigence X-Bethanie.
   // Corps brut conservé : la signature porte sur le texte exact reçu.
   app.post(

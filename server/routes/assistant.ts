@@ -63,22 +63,20 @@ const ChatSchema = z.object({
 /* Données de la boutique transmises à Claude                          */
 /* ------------------------------------------------------------------ */
 
-const shopOf = (userId: string) =>
-  db.prepare('SELECT id, name, location, category FROM shops WHERE owner_id = ?').get(userId) as Row | undefined;
+const shopOf = (userId: string) => db.get('SELECT id, name, location, category FROM shops WHERE owner_id = ?', userId);
 
 const productsOf = (shopId: string) =>
-  db
-    .prepare('SELECT id, title, category, price, stock FROM products WHERE shop_id = ? AND deleted_at IS NULL ORDER BY created_at DESC')
-    .all(shopId) as Row[];
+  db.all('SELECT id, title, category, price, stock FROM products WHERE shop_id = ? AND deleted_at IS NULL ORDER BY created_at DESC', shopId);
 
-const ordersOf = (shopId: string) => {
-  const orders = db
-    .prepare(
+const ordersOf = async (shopId: string) => {
+  const [orders, items] = await Promise.all([
+    db.all(
       `SELECT id, status, payment_status, created_at FROM orders
-       WHERE id IN (SELECT order_id FROM order_items WHERE shop_id = ?) ORDER BY created_at DESC LIMIT 60`
-    )
-    .all(shopId) as Row[];
-  const items = db.prepare('SELECT order_id, quantity, unit_price, product_snapshot FROM order_items WHERE shop_id = ?').all(shopId) as Row[];
+       WHERE id IN (SELECT order_id FROM order_items WHERE shop_id = ?) ORDER BY created_at DESC LIMIT 60`,
+      shopId
+    ),
+    db.all('SELECT order_id, quantity, unit_price, product_snapshot FROM order_items WHERE shop_id = ?', shopId),
+  ]);
   return orders.map((order) => {
     const lines = items.filter((item) => item.order_id === order.id);
     const status = order.status as OrderStatus;
@@ -103,9 +101,8 @@ const ordersOf = (shopId: string) => {
   });
 };
 
-const snapshot = (shop: Row) => {
-  const products = productsOf(String(shop.id));
-  const orders = ordersOf(String(shop.id));
+const snapshot = async (shop: Row) => {
+  const [products, orders] = await Promise.all([productsOf(String(shop.id)), ordersOf(String(shop.id))]);
   const sold = orders.flatMap((o) => o.articles).reduce((sum, a) => sum + a.quantite, 0);
   return {
     boutique: { nom: shop.name, ville: shop.location, categorie: shop.category },
@@ -220,10 +217,10 @@ const StockInput = z.object({ produit_id: z.string().min(1), nouveau_stock: z.nu
 const OrderInput = z.object({ commande_id: z.string().trim().min(1) });
 
 /** Exécute un outil : vérifie la demande et prépare une proposition, sans rien modifier. */
-const runTool = (
+const runTool = async (
   shopId: string,
   block: Anthropic.Beta.BetaToolUseBlock
-): { result: string; isError?: boolean; proposal?: AssistantProposal } => {
+): Promise<{ result: string; isError?: boolean; proposal?: AssistantProposal }> => {
   if (block.name === 'proposer_fiche_produit') {
     const input = DraftInput.safeParse(block.input);
     if (!input.success) return { result: `Brouillon invalide : ${input.error.issues[0].message}`, isError: true };
@@ -236,9 +233,7 @@ const runTool = (
   if (block.name === 'proposer_stock') {
     const input = StockInput.safeParse(block.input);
     if (!input.success) return { result: 'Demande de stock invalide.', isError: true };
-    const product = db
-      .prepare('SELECT id, title, stock FROM products WHERE id = ? AND shop_id = ? AND deleted_at IS NULL')
-      .get(input.data.produit_id, shopId) as Row | undefined;
+    const product = await db.get('SELECT id, title, stock FROM products WHERE id = ? AND shop_id = ? AND deleted_at IS NULL', input.data.produit_id, shopId);
     if (!product) return { result: 'Ce produit n’appartient pas à la boutique du vendeur.', isError: true };
     if (Number(product.stock) === input.data.nouveau_stock) return { result: `Le stock est déjà de ${product.stock}.`, isError: true };
     return {
@@ -249,9 +244,11 @@ const runTool = (
   if (block.name === 'proposer_avancement_commande') {
     const input = OrderInput.safeParse(block.input);
     if (!input.success) return { result: 'Numéro de commande invalide.', isError: true };
-    const order = db
-      .prepare('SELECT id, status, payment_status FROM orders WHERE id = ? AND id IN (SELECT order_id FROM order_items WHERE shop_id = ?)')
-      .get(input.data.commande_id.replace(/^#/, ''), shopId) as Row | undefined;
+    const order = await db.get(
+      'SELECT id, status, payment_status FROM orders WHERE id = ? AND id IN (SELECT order_id FROM order_items WHERE shop_id = ?)',
+      input.data.commande_id.replace(/^#/, ''),
+      shopId
+    );
     if (!order) return { result: 'Cette commande ne contient aucun article de la boutique.', isError: true };
     if (order.payment_status === 'en_attente') {
       return { result: 'Bloqué : le paiement est en attente, la commande ne peut pas avancer (règle de Béthanie). Aucune proposition.', isError: true };
@@ -272,7 +269,7 @@ const runTool = (
 
 assistantRouter.post('/', limiter, async (req, res) => {
   const user = currentUser(req);
-  const shop = shopOf(user.id);
+  const shop = await shopOf(user.id);
   if (!shop) throw forbidden('Ouvrez d’abord votre boutique dans l’espace vendeur.');
   if (!configured()) {
     console.error('[api] Assistant vendeur : variable ANTHROPIC_API_KEY manquante (voir .env.example).');
@@ -288,7 +285,7 @@ assistantRouter.post('/', limiter, async (req, res) => {
       text:
         `Langue de réponse : ${lang === 'en' ? 'anglais (English)' : 'français'}.\n` +
         `Date du jour : ${new Date().toISOString().slice(0, 10)}.\n` +
-        `Données de la boutique du vendeur (JSON) :\n${JSON.stringify(snapshot(shop))}`,
+        `Données de la boutique du vendeur (JSON) :\n${JSON.stringify(await snapshot(shop))}`,
     },
   ];
   const messages: Anthropic.Beta.BetaMessageParam[] = history.map((m) => ({ role: m.role, content: m.text }));
@@ -323,13 +320,12 @@ assistantRouter.post('/', limiter, async (req, res) => {
 
       if (response.stop_reason === 'pause_turn') continue;
       if (response.stop_reason !== 'tool_use') break;
-      const results: Anthropic.Beta.BetaToolResultBlockParam[] = response.content
-        .filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use')
-        .map((block) => {
-          const outcome = runTool(String(shop.id), block);
-          if (outcome.proposal) proposals.push(outcome.proposal);
-          return { type: 'tool_result', tool_use_id: block.id, content: outcome.result, is_error: outcome.isError };
-        });
+      const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
+      for (const block of response.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use')) {
+        const outcome = await runTool(String(shop.id), block);
+        if (outcome.proposal) proposals.push(outcome.proposal);
+        results.push({ type: 'tool_result', tool_use_id: block.id, content: outcome.result, is_error: outcome.isError });
+      }
       messages.push({ role: 'user', content: results });
       if (Date.now() - started > 40_000) break;
     }

@@ -16,7 +16,7 @@
 import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
 import { config } from './config.ts';
-import { db, type Row } from './db.ts';
+import { db } from './db.ts';
 import { HttpError } from './http.ts';
 import {
   TransactionRefused,
@@ -163,7 +163,7 @@ const FAILED = new Set(['failed', 'cancelled', 'expired', 'refunded']);
  * cancelIfPending : commande non payée depuis 2 h → annulée même si GeniusPay attend encore.
  */
 export const reconcileOrderPayment = async (orderId: string, options: { cancelIfPending?: boolean } = {}) => {
-  const order = db.prepare('SELECT id, status, payment_status, payment_reference, total FROM orders WHERE id = ?').get(orderId) as Row | undefined;
+  const order = await db.get('SELECT id, status, payment_status, payment_reference, total FROM orders WHERE id = ?', orderId);
   if (!order?.payment_reference) return 'sans paiement en ligne';
   const reference = String(order.payment_reference);
   const payment = await geniusPay<GeniusPayment>('GET', `/payments/${encodeURIComponent(reference)}`);
@@ -181,12 +181,12 @@ export const reconcileOrderPayment = async (orderId: string, options: { cancelIf
     }
     if (order.status === 'annulée') problems.push('paiement reçu pour une commande déjà annulée : à rembourser ou à honorer');
     if (problems.length) {
-      recordAnomaly(new TransactionRefused(orderId, [...problems, `référence ${reference}`]));
+      await recordAnomaly(new TransactionRefused(orderId, [...problems, `référence ${reference}`]));
       return 'anomalie';
     }
-    guarded(() => {
-      const { changes } = db.prepare(`UPDATE orders SET payment_status = 'payé' WHERE id = ? AND payment_status = 'en_attente'`).run(orderId);
-      if (changes === 1) acquireCommission(orderId, 'en ligne', { reference, fournisseur: 'GeniusPay' });
+    await guarded(async () => {
+      const { changes } = await db.run(`UPDATE orders SET payment_status = 'payé' WHERE id = ? AND payment_status = 'en_attente'`, orderId);
+      if (changes === 1) await acquireCommission(orderId, 'en ligne', { reference, fournisseur: 'GeniusPay' });
     });
     return 'payée';
   }
@@ -194,7 +194,7 @@ export const reconcileOrderPayment = async (orderId: string, options: { cancelIf
   if (order.payment_status === 'en_attente' && order.status === 'confirmée' && (FAILED.has(status) || options.cancelIfPending)) {
     // Distingue un refus explicite de GeniusPay (le client a vu l'échec sur leur page) d'une simple expiration :
     // le suivi de commande affiche un message différent dans chaque cas.
-    cancelOrder(
+    await cancelOrder(
       orderId,
       FAILED.has(status) ? `paiement ${status} chez GeniusPay` : 'paiement non reçu sous 2 heures',
       { reference },
@@ -250,8 +250,8 @@ export const geniusPayWebhook = async (req: Request, res: Response) => {
       ? `id:${event.id}`
       : `sig:${crypto.createHash('sha256').update(`${timestamp}.${signature}`).digest('hex')}`;
   // Au-delà de 7 jours, GeniusPay ne renvoie plus une notification (et l'horodatage la refuserait déjà).
-  db.prepare('DELETE FROM payment_webhook_events WHERE received_at < ?').run(new Date(Date.now() - 7 * 86_400_000).toISOString());
-  if (db.prepare('INSERT OR IGNORE INTO payment_webhook_events (event_id) VALUES (?)').run(eventId).changes === 0) {
+  await db.run('DELETE FROM payment_webhook_events WHERE received_at < ?', new Date(Date.now() - 7 * 86_400_000).toISOString());
+  if ((await db.run('INSERT OR IGNORE INTO payment_webhook_events (event_id) VALUES (?)', eventId)).changes === 0) {
     console.warn(`[api] Notification GeniusPay déjà traitée, ignorée (${eventId.slice(0, 24)}…).`);
     res.json({ received: true, duplicate: true });
     return;
@@ -261,7 +261,7 @@ export const geniusPayWebhook = async (req: Request, res: Response) => {
   const orderId = event.data?.metadata?.order_id;
   // La commande doit correspondre à la fois au numéro et à la référence du paiement créé par Béthanie.
   const order = reference && orderId
-    ? (db.prepare('SELECT id FROM orders WHERE id = ? AND payment_reference = ?').get(String(orderId), String(reference)) as Row | undefined)
+    ? await db.get('SELECT id FROM orders WHERE id = ? AND payment_reference = ?', String(orderId), String(reference))
     : undefined;
   if (!order) {
     res.json({ received: true, ignored: true });
@@ -274,7 +274,7 @@ export const geniusPayWebhook = async (req: Request, res: Response) => {
     res.json({ received: true });
   } catch (error) {
     // Traitement impossible (GeniusPay injoignable…) : la notification redevient acceptable pour leur nouvel envoi.
-    db.prepare('DELETE FROM payment_webhook_events WHERE event_id = ?').run(eventId);
+    await db.run('DELETE FROM payment_webhook_events WHERE event_id = ?', eventId);
     throw error;
   }
 };
@@ -285,12 +285,12 @@ export const geniusPayWebhook = async (req: Request, res: Response) => {
 
 let lastSweep = 0;
 /** À chaque requête de l'API, au plus une fois par minute (fonctionne aussi sur Vercel, sans tâche planifiée). */
-export const sweepUnpaidOrders = (_req: unknown, _res: unknown, next: () => void) => {
+export const sweepUnpaidOrders = async (_req: unknown, _res: unknown, next: () => void) => {
   if (Date.now() - lastSweep > 60_000) {
     lastSweep = Date.now();
     try {
-      cancelUnpaidOrders(); // commandes sans paiement en ligne
-      for (const id of expiredOrdersWithPayment()) {
+      await cancelUnpaidOrders(); // commandes sans paiement en ligne
+      for (const id of await expiredOrdersWithPayment()) {
         // Paiement GeniusPay : on demande d'abord à GeniusPay (le client a peut-être payé).
         reconcileOrderPayment(id, { cancelIfPending: true }).catch((error) =>
           console.error(`[controle] Vérification du paiement de ${id} impossible :`, error instanceof Error ? error.message : error)

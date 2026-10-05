@@ -43,18 +43,33 @@ const seal = (prevHash: string, row: LogRow, method: 'h' | 'm') => {
   return method === 'm' ? crypto.createHmac('sha256', secret()).update(data).digest('hex') : crypto.createHash('sha256').update(data).digest('hex');
 };
 
-/** Ajoute une ligne au journal. À appeler dans une transaction SQLite quand l'événement en fait partie. */
-export const logEvent = (orderId: string | null, event: TransactionEvent, amount = 0, commission = 0, details: Record<string, unknown> = {}) => {
-  const last = db.prepare('SELECT hash FROM transaction_log ORDER BY id DESC LIMIT 1').get() as Row | undefined;
-  const prev = last ? String(last.hash) : GENESIS;
-  const row = { at: nowIso(), order_id: orderId, event, amount, commission, details: JSON.stringify(details) };
-  const method = secret() ? 'm' : 'h';
-  db.prepare(
-    'INSERT INTO transaction_log (at, order_id, event, amount, commission, details, prev_hash, hash, seal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(row.at, row.order_id, row.event, row.amount, row.commission, row.details, prev, seal(prev, row, method), method);
-  // Toute écriture rend le rapport administrateur en cache obsolète (voir auditReport ci-dessous).
-  auditCache = null;
-};
+const toLogRow = (r: Row): LogRow => ({
+  at: String(r.at),
+  order_id: r.order_id === null ? null : String(r.order_id),
+  event: String(r.event),
+  amount: Number(r.amount),
+  commission: Number(r.commission),
+  details: String(r.details),
+});
+
+/**
+ * Ajoute une ligne au journal, dans la transaction en cours quand l'événement en fait partie. Toujours dans une
+ * transaction : lire l'empreinte précédente et écrire la nouvelle ligne ne doivent pas être séparés, sinon deux
+ * serveurs écrivant en même temps dans la base hébergée créeraient deux lignes à la même empreinte précédente.
+ */
+export const logEvent = (orderId: string | null, event: TransactionEvent, amount = 0, commission = 0, details: Record<string, unknown> = {}) =>
+  transaction(async () => {
+    const last = await db.get('SELECT hash FROM transaction_log ORDER BY id DESC LIMIT 1');
+    const prev = last ? String(last.hash) : GENESIS;
+    const row: LogRow = { at: nowIso(), order_id: orderId, event, amount, commission, details: JSON.stringify(details) };
+    const method = secret() ? 'm' : 'h';
+    await db.run(
+      'INSERT INTO transaction_log (at, order_id, event, amount, commission, details, prev_hash, hash, seal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      row.at, row.order_id, row.event, row.amount, row.commission, row.details, prev, seal(prev, row, method), method
+    );
+    // Toute écriture rend le rapport administrateur en cache obsolète (voir auditReport ci-dessous).
+    auditVersion += 1;
+  });
 
 /**
  * Vérifie que le journal n'a pas été modifié : chaque sceau est recalculé.
@@ -62,14 +77,14 @@ export const logEvent = (orderId: string | null, event: TransactionEvent, amount
  * - Clé définie : toute ligne à empreinte simple est « non scellée » (ancienne ligne à sceller avec
  *   `npm run controle -- --sceller`, ou journal réécrit sans la clé) ; le rapport le signale.
  */
-export const verifyLog = () => {
-  const rows = db.prepare('SELECT * FROM transaction_log ORDER BY id').all() as Row[];
+export const verifyLog = async () => {
+  const rows = await db.all('SELECT * FROM transaction_log ORDER BY id');
   let prev = GENESIS;
   let keyed = false;
   let unsealed = 0;
   for (const r of rows) {
     const method = r.seal === 'm' ? 'm' : 'h';
-    const row: LogRow = { at: String(r.at), order_id: r.order_id === null ? null : String(r.order_id), event: String(r.event), amount: Number(r.amount), commission: Number(r.commission), details: String(r.details) };
+    const row = toLogRow(r);
     const cause =
       method === 'm' && !secret()
         ? 'clé TRANSACTIONS_SECRET absente du serveur : vérification impossible'
@@ -87,21 +102,20 @@ export const verifyLog = () => {
 };
 
 /** Scelle avec TRANSACTIONS_SECRET les lignes antérieures à la clé, après avoir vérifié qu'elles sont intactes. */
-export const sealLog = () => {
+export const sealLog = async () => {
   if (!secret()) throw new Error('TRANSACTIONS_SECRET n’est pas défini.');
-  const check = verifyLog();
+  const check = await verifyLog();
   if (!check.intact) throw new Error(`Journal modifié à partir de la ligne ${check.premiereLigneAlteree} : scellement refusé.`);
   if (check.nonScellees === 0) return 0;
-  transaction(() => {
-    const rows = db.prepare('SELECT * FROM transaction_log ORDER BY id').all() as Row[];
+  await transaction(async () => {
+    const rows = await db.all('SELECT * FROM transaction_log ORDER BY id');
     let prev = GENESIS;
     for (const r of rows) {
-      const row: LogRow = { at: String(r.at), order_id: r.order_id === null ? null : String(r.order_id), event: String(r.event), amount: Number(r.amount), commission: Number(r.commission), details: String(r.details) };
-      const hash = seal(prev, row, 'm');
-      db.prepare(`UPDATE transaction_log SET prev_hash = ?, hash = ?, seal = 'm' WHERE id = ?`).run(prev, hash, Number(r.id));
+      const hash = seal(prev, toLogRow(r), 'm');
+      await db.run(`UPDATE transaction_log SET prev_hash = ?, hash = ?, seal = 'm' WHERE id = ?`, prev, hash, Number(r.id));
       prev = hash;
     }
-    logEvent(null, 'controle', 0, 0, { action: 'journal scellé par la clé', lignes: check.nonScellees });
+    await logEvent(null, 'controle', 0, 0, { action: 'journal scellé par la clé', lignes: check.nonScellees });
   });
   return check.nonScellees;
 };
@@ -111,21 +125,19 @@ export const sealLog = () => {
 /* ------------------------------------------------------------------ */
 
 const itemsByShop = (orderId: string) =>
-  db
-    .prepare('SELECT shop_id, SUM(unit_price * quantity) AS gross FROM order_items WHERE order_id = ? GROUP BY shop_id ORDER BY shop_id')
-    .all(orderId) as Row[];
+  db.all('SELECT shop_id, SUM(unit_price * quantity) AS gross FROM order_items WHERE order_id = ? GROUP BY shop_id ORDER BY shop_id', orderId);
 
 /** Contrôle une commande ; renvoie la liste des écarts (vide si tout est juste). */
-export const checkOrder = (orderId: string): string[] => {
+export const checkOrder = async (orderId: string): Promise<string[]> => {
   const problems: string[] = [];
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as Row | undefined;
+  const order = await db.get('SELECT * FROM orders WHERE id = ?', orderId);
   if (!order) return [`commande ${orderId} introuvable`];
   const subtotal = Number(order.subtotal);
   const fee = Number(order.delivery_fee);
   const discount = Number(order.discount);
   const total = Number(order.total);
 
-  const shops = itemsByShop(orderId);
+  const shops = await itemsByShop(orderId);
   const itemsTotal = shops.reduce((sum, s) => sum + Number(s.gross), 0);
   if (shops.length === 0) problems.push('aucun article');
   if (itemsTotal !== subtotal) problems.push(`sous-total ${subtotal} ≠ somme des articles ${itemsTotal}`);
@@ -134,7 +146,7 @@ export const checkOrder = (orderId: string): string[] => {
   if (total !== subtotal + fee - discount) problems.push(`total ${total} ≠ ${subtotal} + ${fee} − ${discount}`);
   if (total < 0) problems.push(`total négatif (${total})`);
 
-  const settlements = db.prepare('SELECT * FROM order_settlements WHERE order_id = ? ORDER BY shop_id').all(orderId) as Row[];
+  const settlements = await db.all('SELECT * FROM order_settlements WHERE order_id = ? ORDER BY shop_id', orderId);
   if (settlements.length !== shops.length) problems.push(`répartition sur ${settlements.length} boutique(s) au lieu de ${shops.length}`);
   for (const shop of shops) {
     const s = settlements.find((x) => x.shop_id === shop.shop_id);
@@ -161,37 +173,36 @@ export const checkOrder = (orderId: string): string[] => {
 };
 
 /** Écrit la répartition d'une commande (dans la transaction de création) et la contrôle ; refuse si écart. */
-export const settleOrder = (orderId: string, event: TransactionEvent = 'commande') => {
-  const order = db.prepare('SELECT total, status, payment_status FROM orders WHERE id = ?').get(orderId) as Row;
+export const settleOrder = async (orderId: string, event: TransactionEvent = 'commande') => {
+  const order = (await db.get('SELECT total, status, payment_status FROM orders WHERE id = ?', orderId)) as Row;
   const status = order.status === 'annulée' ? 'annulée' : order.payment_status === 'payé' ? 'acquise' : 'prévue';
   let commission = 0;
-  for (const shop of itemsByShop(orderId)) {
+  for (const shop of await itemsByShop(orderId)) {
     const gross = Number(shop.gross);
     const c = commissionOn(gross);
     commission += c;
-    db.prepare(
+    await db.run(
       `INSERT INTO order_settlements (order_id, shop_id, gross, commission_rate_bp, commission, seller_net, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(orderId, String(shop.shop_id), gross, COMMISSION_RATE_BP, c, gross - c, status);
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      orderId, String(shop.shop_id), gross, COMMISSION_RATE_BP, c, gross - c, status
+    );
   }
-  const problems = checkOrder(orderId);
+  const problems = await checkOrder(orderId);
   if (problems.length) throw new TransactionRefused(orderId, problems);
-  logEvent(orderId, event, Number(order.total), commission, { taux: `${COMMISSION_RATE_BP / 100} %`, statut: status });
+  await logEvent(orderId, event, Number(order.total), commission, { taux: `${COMMISSION_RATE_BP / 100} %`, statut: status });
 };
 
 /**
  * Paiement reçu (en ligne, ou à la livraison) : la commission devient acquise. À appeler dans la même transaction
- * SQLite que le passage de la commande à « payé » : tout ou rien.
+ * que le passage de la commande à « payé » : tout ou rien.
  */
-export const acquireCommission = (orderId: string, how: 'en ligne' | 'à la livraison', extra: Record<string, unknown> = {}) => {
-  db.prepare(`UPDATE order_settlements SET status = 'acquise' WHERE order_id = ?`).run(orderId);
-  const problems = checkOrder(orderId);
+export const acquireCommission = async (orderId: string, how: 'en ligne' | 'à la livraison', extra: Record<string, unknown> = {}) => {
+  await db.run(`UPDATE order_settlements SET status = 'acquise' WHERE order_id = ?`, orderId);
+  const problems = await checkOrder(orderId);
   if (problems.length) throw new TransactionRefused(orderId, problems);
-  const order = db.prepare('SELECT total FROM orders WHERE id = ?').get(orderId) as Row;
-  const commission = Number(
-    (db.prepare('SELECT COALESCE(SUM(commission), 0) AS c FROM order_settlements WHERE order_id = ?').get(orderId) as Row).c
-  );
-  logEvent(orderId, 'paiement', Number(order.total), commission, { mode: how, ...extra });
+  const order = (await db.get('SELECT total FROM orders WHERE id = ?', orderId)) as Row;
+  const commission = Number(((await db.get('SELECT COALESCE(SUM(commission), 0) AS c FROM order_settlements WHERE order_id = ?', orderId)) as Row).c);
+  await logEvent(orderId, 'paiement', Number(order.total), commission, { mode: how, ...extra });
 };
 
 /**
@@ -202,19 +213,19 @@ export const acquireCommission = (orderId: string, how: 'en ligne' | 'à la livr
 export type CancelReason = 'paiement_echoue' | 'paiement_expire' | 'autre';
 
 export const cancelOrder = (orderId: string, raison: string, extra: Record<string, unknown> = {}, reason: CancelReason = 'autre') =>
-  guarded(() => {
-    const order = db.prepare('SELECT status, payment_status FROM orders WHERE id = ?').get(orderId) as Row | undefined;
+  guarded(async () => {
+    const order = await db.get('SELECT status, payment_status FROM orders WHERE id = ?', orderId);
     if (!order || order.payment_status !== 'en_attente' || order.status !== 'confirmée') return false;
-    db.prepare(`UPDATE orders SET status = 'annulée', payment_status = 'échoué', cancel_reason = ? WHERE id = ?`).run(reason, orderId);
-    db.prepare(`INSERT INTO order_events (order_id, status) VALUES (?, 'annulée')`).run(orderId);
-    const items = db.prepare('SELECT product_id, quantity FROM order_items WHERE order_id = ?').all(orderId) as Row[];
+    await db.run(`UPDATE orders SET status = 'annulée', payment_status = 'échoué', cancel_reason = ? WHERE id = ?`, reason, orderId);
+    await db.run(`INSERT INTO order_events (order_id, status) VALUES (?, 'annulée')`, orderId);
+    const items = await db.all('SELECT product_id, quantity FROM order_items WHERE order_id = ?', orderId);
     for (const item of items) {
-      db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(Number(item.quantity), String(item.product_id));
+      await db.run('UPDATE products SET stock = stock + ? WHERE id = ?', Number(item.quantity), String(item.product_id));
     }
-    db.prepare(`UPDATE order_settlements SET status = 'annulée' WHERE order_id = ?`).run(orderId);
-    const problems = checkOrder(orderId);
+    await db.run(`UPDATE order_settlements SET status = 'annulée' WHERE order_id = ?`, orderId);
+    const problems = await checkOrder(orderId);
     if (problems.length) throw new TransactionRefused(orderId, problems);
-    logEvent(orderId, 'annulation', 0, 0, {
+    await logEvent(orderId, 'annulation', 0, 0, {
       raison,
       articlesRemisEnVente: items.reduce((sum, item) => sum + Number(item.quantity), 0),
       ...extra,
@@ -222,25 +233,24 @@ export const cancelOrder = (orderId: string, raison: string, extra: Record<strin
     return true;
   });
 
-const expiredUnpaid = (now: number, withPayment: boolean) =>
+const expiredUnpaid = async (now: number, withPayment: boolean) =>
   (
-    db
-      .prepare(
-        `SELECT id FROM orders WHERE payment_status = 'en_attente' AND status = 'confirmée' AND created_at < ?
-         AND payment_reference IS ${withPayment ? 'NOT ' : ''}NULL ORDER BY created_at`
-      )
-      .all(new Date(now - UNPAID_ORDER_TTL_MS).toISOString()) as Row[]
+    await db.all(
+      `SELECT id FROM orders WHERE payment_status = 'en_attente' AND status = 'confirmée' AND created_at < ?
+       AND payment_reference IS ${withPayment ? 'NOT ' : ''}NULL ORDER BY created_at`,
+      new Date(now - UNPAID_ORDER_TTL_MS).toISOString()
+    )
   ).map((r) => String(r.id));
 
 /** Commandes non payées depuis 2 heures dont le paiement est en ligne : à vérifier auprès du prestataire avant. */
 export const expiredOrdersWithPayment = (now = Date.now()) => expiredUnpaid(now, true);
 
 /** Annule les commandes non payées depuis 2 heures qui n'ont pas de paiement en ligne (simulation). */
-export const cancelUnpaidOrders = (now = Date.now()) => {
+export const cancelUnpaidOrders = async (now = Date.now()) => {
   let cancelled = 0;
-  for (const orderId of expiredUnpaid(now, false)) {
+  for (const orderId of await expiredUnpaid(now, false)) {
     try {
-      if (cancelOrder(orderId, 'paiement non reçu sous 2 heures', {}, 'paiement_expire')) cancelled += 1;
+      if (await cancelOrder(orderId, 'paiement non reçu sous 2 heures', {}, 'paiement_expire')) cancelled += 1;
     } catch (error) {
       if (!(error instanceof TransactionRefused)) throw error;
     }
@@ -250,11 +260,11 @@ export const cancelUnpaidOrders = (now = Date.now()) => {
 };
 
 /** Exécute une opération sur les commandes ; si le contrôle la refuse, l'alerte est inscrite au journal. */
-export const guarded = <T>(operation: () => T): T => {
+export const guarded = async <T>(operation: () => Promise<T>): Promise<T> => {
   try {
-    return transaction(operation);
+    return await transaction(operation);
   } catch (error) {
-    if (error instanceof TransactionRefused) recordAnomaly(error);
+    if (error instanceof TransactionRefused) await recordAnomaly(error);
     throw error;
   }
 };
@@ -271,24 +281,22 @@ export class TransactionRefused extends HttpError {
   }
 }
 
-export const recordAnomaly = (error: TransactionRefused) => {
+export const recordAnomaly = async (error: TransactionRefused) => {
   console.error(`[controle] Transaction ${error.orderId} refusée : ${error.problems.join(' ; ')}`);
-  logEvent(error.orderId, 'anomalie', 0, 0, { ecarts: error.problems });
+  await logEvent(error.orderId, 'anomalie', 0, 0, { ecarts: error.problems });
 };
 
 /**
  * Commandes antérieures au contrôle (base existante) : leur répartition est calculée une fois, au démarrage,
  * et inscrite au journal comme « reprise ».
  */
-export const backfillSettlements = () => {
-  const missing = db
-    .prepare('SELECT id FROM orders WHERE id NOT IN (SELECT DISTINCT order_id FROM order_settlements) ORDER BY created_at')
-    .all() as Row[];
+export const backfillSettlements = async () => {
+  const missing = await db.all('SELECT id FROM orders WHERE id NOT IN (SELECT DISTINCT order_id FROM order_settlements) ORDER BY created_at');
   for (const { id } of missing) {
     try {
-      transaction(() => settleOrder(String(id), 'reprise'));
+      await transaction(() => settleOrder(String(id), 'reprise'));
     } catch (error) {
-      if (error instanceof TransactionRefused) recordAnomaly(error);
+      if (error instanceof TransactionRefused) await recordAnomaly(error);
       else throw error;
     }
   }
@@ -308,38 +316,39 @@ export const backfillSettlements = () => {
  * quel que soit le nombre de requêtes reçues entre deux écritures réelles.
  */
 const AUDIT_CACHE_MS = 15_000;
-let auditCache: { at: number; report: ReturnType<typeof computeAuditReport> } | null = null;
+/** Augmenté à chaque ligne du journal : un rapport calculé avant une écriture n'est pas mis en cache. */
+let auditVersion = 0;
+let auditCache: { at: number; version: number; report: Awaited<ReturnType<typeof computeAuditReport>> } | null = null;
 
-export const auditReport = () => {
-  if (auditCache && Date.now() - auditCache.at < AUDIT_CACHE_MS) return auditCache.report;
-  const report = computeAuditReport();
-  auditCache = { at: Date.now(), report };
+export const auditReport = async () => {
+  if (auditCache && auditCache.version === auditVersion && Date.now() - auditCache.at < AUDIT_CACHE_MS) return auditCache.report;
+  const version = auditVersion;
+  const report = await computeAuditReport();
+  if (version === auditVersion) auditCache = { at: Date.now(), version, report };
   return report;
 };
 
-function computeAuditReport() {
-  const orders = db.prepare('SELECT id FROM orders ORDER BY created_at').all() as Row[];
-  const anomalies = orders
-    .map((o) => ({ commande: String(o.id), ecarts: checkOrder(String(o.id)) }))
-    .filter((a) => a.ecarts.length > 0);
-  const totals = db
-    .prepare(
-      `SELECT status, COALESCE(SUM(commission), 0) AS commission, COALESCE(SUM(gross), 0) AS gross, COUNT(DISTINCT order_id) AS orders
-       FROM order_settlements GROUP BY status`
-    )
-    .all() as Row[];
+async function computeAuditReport() {
+  const orders = await db.all('SELECT id FROM orders ORDER BY created_at');
+  const anomalies: { commande: string; ecarts: string[] }[] = [];
+  for (const o of orders) {
+    const ecarts = await checkOrder(String(o.id));
+    if (ecarts.length > 0) anomalies.push({ commande: String(o.id), ecarts });
+  }
+  const totals = await db.all(
+    `SELECT status, COALESCE(SUM(commission), 0) AS commission, COALESCE(SUM(gross), 0) AS gross, COUNT(DISTINCT order_id) AS orders
+     FROM order_settlements GROUP BY status`
+  );
   const pick = (status: string) => totals.find((t) => t.status === status);
-  const byShop = db
-    .prepare(
-      `SELECT s.shop_id, COALESCE(sh.name, s.shop_id) AS name,
-              SUM(CASE WHEN s.status = 'acquise' THEN s.commission ELSE 0 END) AS acquise,
-              SUM(CASE WHEN s.status = 'prévue' THEN s.commission ELSE 0 END) AS prevue,
-              SUM(s.seller_net) AS seller_net
-       FROM order_settlements s LEFT JOIN shops sh ON sh.id = s.shop_id
-       GROUP BY s.shop_id ORDER BY acquise DESC, prevue DESC`
-    )
-    .all() as Row[];
-  const refused = Number((db.prepare(`SELECT COUNT(*) AS n FROM transaction_log WHERE event = 'anomalie'`).get() as Row).n);
+  const byShop = await db.all(
+    `SELECT s.shop_id, COALESCE(sh.name, s.shop_id) AS name,
+            SUM(CASE WHEN s.status = 'acquise' THEN s.commission ELSE 0 END) AS acquise,
+            SUM(CASE WHEN s.status = 'prévue' THEN s.commission ELSE 0 END) AS prevue,
+            SUM(s.seller_net) AS seller_net
+     FROM order_settlements s LEFT JOIN shops sh ON sh.id = s.shop_id
+     GROUP BY s.shop_id ORDER BY acquise DESC, prevue DESC`
+  );
+  const refused = Number(((await db.get(`SELECT COUNT(*) AS n FROM transaction_log WHERE event = 'anomalie'`)) as Row).n);
   return {
     taux: COMMISSION_RATE_BP / 100,
     commandesControlees: orders.length,
@@ -355,7 +364,7 @@ function computeAuditReport() {
     })),
     anomalies,
     transactionsRefusees: refused,
-    journal: { ...verifyLog(), scelle: secret() ? 'HMAC (TRANSACTIONS_SECRET)' : 'empreinte simple (définir TRANSACTIONS_SECRET en production)' },
+    journal: { ...(await verifyLog()), scelle: secret() ? 'HMAC (TRANSACTIONS_SECRET)' : 'empreinte simple (définir TRANSACTIONS_SECRET en production)' },
     verifieLe: nowIso(),
   };
 }

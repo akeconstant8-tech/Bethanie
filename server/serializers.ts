@@ -59,8 +59,8 @@ export const toProduct = (row: Row): Product => {
   return product;
 };
 
-export const getProduct = (id: string): Product | undefined => {
-  const row = db.prepare(`${PRODUCT_SELECT} WHERE p.id = ? AND p.deleted_at IS NULL`).get(id) as Row | undefined;
+export const getProduct = async (id: string): Promise<Product | undefined> => {
+  const row = await db.get(`${PRODUCT_SELECT} WHERE p.id = ? AND p.deleted_at IS NULL`, id);
   return row ? toProduct(row) : undefined;
 };
 
@@ -91,21 +91,19 @@ export const toSellerShop = (row: Row): SellerShop => ({
 
 /* ---------- Utilisateur connecté ---------- */
 
-export const loadMe = (userId: string): Me => {
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as Row;
-  const addresses = db
-    .prepare('SELECT * FROM addresses WHERE user_id = ? ORDER BY created_at')
-    .all(userId) as Row[];
-  const payments = db
-    .prepare('SELECT * FROM payment_methods WHERE user_id = ? ORDER BY created_at')
-    .all(userId) as Row[];
-  const shop = db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(userId) as Row | undefined;
-  const wishlist = db
-    .prepare(
+export const loadMe = async (userId: string): Promise<Me> => {
+  // Requêtes indépendantes : lancées ensemble (un seul temps d'attente réseau avec la base hébergée).
+  const [user, addresses, payments, shop, wishlist] = await Promise.all([
+    db.get('SELECT * FROM users WHERE id = ?', userId) as Promise<Row>,
+    db.all('SELECT * FROM addresses WHERE user_id = ? ORDER BY created_at', userId),
+    db.all('SELECT * FROM payment_methods WHERE user_id = ? ORDER BY created_at', userId),
+    db.get('SELECT * FROM shops WHERE owner_id = ?', userId),
+    db.all(
       `SELECT w.product_id FROM wishlist w JOIN products p ON p.id = w.product_id
-       WHERE w.user_id = ? AND p.deleted_at IS NULL ORDER BY w.created_at`
-    )
-    .all(userId) as Row[];
+       WHERE w.user_id = ? AND p.deleted_at IS NULL ORDER BY w.created_at`,
+      userId
+    ),
+  ]);
 
   return {
     id: String(user.id),
@@ -184,18 +182,18 @@ const toOrder = (row: Row, items: Row[], events: Row[], forCustomer: boolean): O
  * Charge des commandes avec leurs articles et leur historique.
  * `onlyShopId` limite les articles à ceux d'une boutique (vue vendeur).
  */
-export const loadOrders = (orderRows: Row[], onlyShopId?: string): Order[] => {
+export const loadOrders = async (orderRows: Row[], onlyShopId?: string): Promise<Order[]> => {
   if (orderRows.length === 0) return [];
   const ids = orderRows.map((o) => String(o.id));
   const placeholders = ids.map(() => '?').join(',');
-  const itemRows = db
-    .prepare(
-      `SELECT * FROM order_items WHERE order_id IN (${placeholders})${onlyShopId ? ' AND shop_id = ?' : ''} ORDER BY id`
-    )
-    .all(...ids, ...(onlyShopId ? [onlyShopId] : [])) as Row[];
-  const eventRows = db
-    .prepare(`SELECT * FROM order_events WHERE order_id IN (${placeholders}) ORDER BY id`)
-    .all(...ids) as Row[];
+  const [itemRows, eventRows] = await Promise.all([
+    db.all(
+      `SELECT * FROM order_items WHERE order_id IN (${placeholders})${onlyShopId ? ' AND shop_id = ?' : ''} ORDER BY id`,
+      ...ids,
+      ...(onlyShopId ? [onlyShopId] : [])
+    ),
+    db.all(`SELECT * FROM order_events WHERE order_id IN (${placeholders}) ORDER BY id`, ...ids),
+  ]);
 
   return orderRows.map((row) =>
     toOrder(

@@ -3,7 +3,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { createSession, destroySession, hashPassword, isAdminEmail } from '../auth.ts';
-import { db, transaction, type Row } from '../db.ts';
+import { db, transaction } from '../db.ts';
 import { describeFirebaseStatus, verifyGoogleIdToken } from '../firebase.ts';
 import { HttpError, conflict, parse } from '../http.ts';
 import { loadMe } from '../serializers.ts';
@@ -32,28 +32,29 @@ console.log(`[api] ${describeFirebaseStatus()}`);
  *  3. sinon, nouveau compte (nom Google, ville par défaut Abidjan).
  */
 export const linkGoogleAccount = (profile: { uid: string; email: string; name?: string }) =>
-  transaction(() => {
-    const linkedUser = db.prepare('SELECT id FROM users WHERE firebase_uid = ?').get(profile.uid) as Row | undefined;
+  transaction(async () => {
+    const linkedUser = await db.get('SELECT id FROM users WHERE firebase_uid = ?', profile.uid);
     if (linkedUser) return String(linkedUser.id);
 
-    const existingUser = db.prepare('SELECT id, firebase_uid FROM users WHERE email = ?').get(profile.email) as Row | undefined;
+    const existingUser = await db.get('SELECT id, firebase_uid FROM users WHERE email = ?', profile.email);
     if (existingUser) {
       if (existingUser.firebase_uid && existingUser.firebase_uid !== profile.uid) {
         throw conflict('Cette adresse e-mail est déjà liée à un autre compte Google.');
       }
-      db.prepare('UPDATE users SET firebase_uid = ? WHERE id = ?').run(profile.uid, String(existingUser.id));
+      await db.run('UPDATE users SET firebase_uid = ? WHERE id = ?', profile.uid, String(existingUser.id));
       // Le vrai titulaire de l'adresse (vérifiée par Google) prend possession du compte : toute session ouverte
       // avant lui (ancien compte, ou adresse saisie par quelqu'un d'autre) est fermée.
-      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(String(existingUser.id));
+      await db.run('DELETE FROM sessions WHERE user_id = ?', String(existingUser.id));
       return String(existingUser.id);
     }
 
     const id = crypto.randomUUID();
     const name = profile.name?.trim().slice(0, 80) || profile.email.split('@')[0].slice(0, 80);
-    db.prepare(
+    await db.run(
       `INSERT INTO users (id, name, email, phone, password_hash, location, firebase_uid)
-       VALUES (?, ?, ?, '', ?, ?, ?)`
-    ).run(id, name, profile.email, hashPassword(crypto.randomBytes(32).toString('base64url')), "Abidjan, Côte d'Ivoire", profile.uid);
+       VALUES (?, ?, ?, '', ?, ?, ?)`,
+      id, name, profile.email, hashPassword(crypto.randomBytes(32).toString('base64url')), "Abidjan, Côte d'Ivoire", profile.uid
+    );
     return id;
   });
 
@@ -69,24 +70,24 @@ authRouter.post('/google', limiter, async (req, res) => {
   }
 
   const verifiedEmail = email.parse(decoded.email);
-  const userId = linkGoogleAccount({
+  const userId = await linkGoogleAccount({
     uid: decoded.uid,
     email: verifiedEmail,
     name: typeof decoded.name === 'string' ? decoded.name : undefined,
   });
   // Administration : adresses Google vérifiées listées dans ADMIN_EMAILS (séparées par des virgules).
   if (isAdminEmail(verifiedEmail)) {
-    db.prepare(`UPDATE users SET role = 'admin' WHERE id = ? AND role <> 'admin'`).run(userId);
+    await db.run(`UPDATE users SET role = 'admin' WHERE id = ? AND role <> 'admin'`, userId);
   }
-  createSession(res, userId);
-  res.json({ user: loadMe(userId) });
+  await createSession(res, userId);
+  res.json({ user: await loadMe(userId) });
 });
 
-authRouter.post('/logout', (req, res) => {
-  destroySession(req, res);
+authRouter.post('/logout', async (req, res) => {
+  await destroySession(req, res);
   res.status(204).end();
 });
 
-authRouter.get('/me', (req, res) => {
-  res.json({ user: req.user ? loadMe(req.user.id) : null });
+authRouter.get('/me', async (req, res) => {
+  res.json({ user: req.user ? await loadMe(req.user.id) : null });
 });

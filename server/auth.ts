@@ -48,14 +48,10 @@ export const hashPassword = (password: string) => {
 
 const sha256 = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
 
-export const createSession = (res: Response, userId: string) => {
+export const createSession = async (res: Response, userId: string) => {
   const token = crypto.randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + config.sessionDays * 24 * 3600 * 1000);
-  db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(
-    sha256(token),
-    userId,
-    expires.toISOString()
-  );
+  await db.run('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)', sha256(token), userId, expires.toISOString());
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
@@ -65,34 +61,33 @@ export const createSession = (res: Response, userId: string) => {
   });
 };
 
-export const destroySession = (req: Request, res: Response) => {
+export const destroySession = async (req: Request, res: Response) => {
   const token = req.cookies?.[SESSION_COOKIE];
-  if (typeof token === 'string') db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token));
+  if (typeof token === 'string') await db.run('DELETE FROM sessions WHERE token_hash = ?', sha256(token));
   res.clearCookie(SESSION_COOKIE, { path: '/' });
 };
 
 /** Charge l'utilisateur connecté (s'il y en a un) dans req.user. */
-export const loadUser = (req: Request, res: Response, next: NextFunction) => {
+export const loadUser = async (req: Request, res: Response, next: NextFunction) => {
   const token = req.cookies?.[SESSION_COOKIE];
   if (typeof token === 'string' && token.length > 20) {
-    const row = db
-      .prepare(
-        `SELECT u.id, u.name, u.email, u.role, s.expires_at
-         FROM sessions s JOIN users u ON u.id = s.user_id
-         WHERE s.token_hash = ?`
-      )
-      .get(sha256(token)) as Row | undefined;
+    const row = await db.get(
+      `SELECT u.id, u.name, u.email, u.role, s.expires_at
+       FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.token_hash = ?`,
+      sha256(token)
+    );
 
     if (row && String(row.expires_at) > new Date().toISOString()) {
       let role = row.role as AuthUser['role'];
       // Une adresse retirée de ADMIN_EMAILS perd le rôle tout de suite, sans attendre une nouvelle connexion.
       if (role === 'admin' && !isAdminEmail(String(row.email))) {
-        db.prepare(`UPDATE users SET role = 'customer' WHERE id = ?`).run(String(row.id));
+        await db.run(`UPDATE users SET role = 'customer' WHERE id = ?`, String(row.id));
         role = 'customer';
       }
       req.user = { id: String(row.id), name: String(row.name), email: String(row.email), role };
     } else if (row) {
-      destroySession(req, res);
+      await destroySession(req, res);
     }
   }
   next();
@@ -123,21 +118,22 @@ export const requireClientHeader = (req: Request, _res: Response, next: NextFunc
  * que la commande, le paiement GeniusPay et le suivi réutilisent exactement le même mécanisme de
  * session que pour un compte normal. L'adresse e-mail générée est interne, jamais montrée au client.
  */
-export const createGuestAccount = (res: Response, name: string, phone: string): AuthUser => {
+export const createGuestAccount = async (res: Response, name: string, phone: string): Promise<AuthUser> => {
   const id = crypto.randomUUID();
   const cleanName = name.trim().slice(0, 80);
   const email = `invite-${id}${GUEST_EMAIL_DOMAIN}`;
-  db.prepare('INSERT INTO users (id, name, email, phone, password_hash) VALUES (?, ?, ?, ?, ?)').run(
+  await db.run(
+    'INSERT INTO users (id, name, email, phone, password_hash) VALUES (?, ?, ?, ?, ?)',
     id,
     cleanName,
     email,
     phone.trim().slice(0, 30),
     hashPassword(crypto.randomBytes(32).toString('base64url'))
   );
-  createSession(res, id);
+  await createSession(res, id);
   return { id, name: cleanName, email, role: 'customer' };
 };
 
-export const purgeExpiredSessions = () => {
-  db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
+export const purgeExpiredSessions = async () => {
+  await db.run('DELETE FROM sessions WHERE expires_at < ?', new Date().toISOString());
 };

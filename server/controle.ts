@@ -5,17 +5,17 @@
  * commissions de Béthanie. Code de sortie 1 en cas d'écart (utilisable dans une tâche automatique).
  */
 import { formatPrice } from '../src/utils/commerce.ts';
-import { config } from './config.ts';
+import { databaseLabel } from './db.ts';
 import { auditReport, backfillSettlements, sealLog } from './transactions.ts';
 
-backfillSettlements();
+await backfillSettlements();
 if (process.argv.includes('--sceller')) {
-  const sealed = sealLog();
+  const sealed = await sealLog();
   console.log(sealed ? `Journal : ${sealed} ligne(s) ancienne(s) scellée(s) par TRANSACTIONS_SECRET.` : 'Journal : déjà entièrement scellé.');
 }
-const r = auditReport();
+const r = await auditReport();
 
-console.log(`\nContrôle des transactions — base : ${config.dbPath}`);
+console.log(`\nContrôle des transactions — base : ${databaseLabel}`);
 console.log(`Commission de Béthanie : ${r.taux} % du prix des articles`);
 console.log(`  Perçue (commandes payées)      : ${formatPrice(r.commissionAcquise)} sur ${formatPrice(r.ventesPayees)} de ventes`);
 console.log(`  À percevoir (non encore payées) : ${formatPrice(r.commissionPrevue)} sur ${formatPrice(r.ventesEnAttente)} de ventes`);

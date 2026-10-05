@@ -19,6 +19,7 @@
     "@anthropic-ai/sdk": "^0.131.0",
     "@firebase/app": "^0.16.2",
     "@firebase/auth": "^1.13.6",
+    "@libsql/client": "^0.18.0",
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
     "express-rate-limit": "^7.5.1",

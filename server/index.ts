@@ -1,14 +1,13 @@
 import { createApp } from './app.ts';
-import { purgeExpiredSessions } from './auth.ts';
 import { config } from './config.ts';
-import { seedIfEmpty } from './seed.ts';
+import { databaseLabel } from './db.ts';
+import { prepareData } from './startup.ts';
 
-const seeded = seedIfEmpty();
-purgeExpiredSessions();
+const seeded = await prepareData();
 
 createApp().listen(config.port, () => {
   console.log(`[api] Béthanie prête sur http://localhost:${config.port}`);
-  console.log(`[api] Base de données : ${config.dbPath}`);
+  console.log(`[api] Base de données : ${databaseLabel}`);
   if (seeded) console.log('[api] Base de données initialisée avec les données de démonstration.');
   if (config.demoMode) console.log('[api] Mode démo actif (paiements simulés).');
 });

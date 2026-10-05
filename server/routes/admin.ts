@@ -26,6 +26,6 @@ const reportLimiter = rateLimit({
 });
 
 /** Rapport complet : commissions perçues et à percevoir, anomalies, intégrité du journal. */
-adminRouter.get('/transactions', reportLimiter, (_req, res) => {
-  res.json({ report: auditReport() });
+adminRouter.get('/transactions', reportLimiter, async (_req, res) => {
+  res.json({ report: await auditReport() });
 });

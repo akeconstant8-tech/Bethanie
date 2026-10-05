@@ -22,7 +22,7 @@ const ListQuery = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-catalogRouter.get('/products', (req, res) => {
+catalogRouter.get('/products', async (req, res) => {
   const query = parse(ListQuery, req.query);
   const where = ['p.deleted_at IS NULL'];
   const params: (string | number)[] = [];
@@ -40,26 +40,24 @@ catalogRouter.get('/products', (req, res) => {
     params.push(like, like, like);
   }
   const whereSql = `WHERE ${where.join(' AND ')}`;
-  const total = (db.prepare(`SELECT COUNT(*) AS n FROM products p ${whereSql}`).get(...params) as Row).n;
-  const rows = db
-    .prepare(`${PRODUCT_SELECT} ${whereSql} ORDER BY p.position, p.created_at DESC LIMIT ? OFFSET ?`)
-    .all(...params, query.limit, query.offset) as Row[];
-  res.json({ products: rows.map(toProduct), total: Number(total) });
+  const [count, rows] = await Promise.all([
+    db.get(`SELECT COUNT(*) AS n FROM products p ${whereSql}`, ...params) as Promise<Row>,
+    db.all(`${PRODUCT_SELECT} ${whereSql} ORDER BY p.position, p.created_at DESC LIMIT ? OFFSET ?`, ...params, query.limit, query.offset),
+  ]);
+  res.json({ products: rows.map(toProduct), total: Number(count.n) });
 });
 
-catalogRouter.get('/products/:id', (req, res) => {
-  const product = getProduct(String(req.params.id));
+catalogRouter.get('/products/:id', async (req, res) => {
+  const product = await getProduct(String(req.params.id));
   if (!product) throw notFound('Ce produit n’est plus disponible.');
   res.json({ product });
 });
 
 /* ---------- Avis ---------- */
 
-catalogRouter.get('/products/:id/reviews', (req, res) => {
-  if (!getProduct(String(req.params.id))) throw notFound('Ce produit n’est plus disponible.');
-  const rows = db
-    .prepare('SELECT * FROM reviews WHERE product_id = ? ORDER BY created_at DESC LIMIT 50')
-    .all(String(req.params.id)) as Row[];
+catalogRouter.get('/products/:id/reviews', async (req, res) => {
+  if (!(await getProduct(String(req.params.id)))) throw notFound('Ce produit n’est plus disponible.');
+  const rows = await db.all('SELECT * FROM reviews WHERE product_id = ? ORDER BY created_at DESC LIMIT 50', String(req.params.id));
   res.json({ reviews: rows.map(toReview) });
 });
 
@@ -68,40 +66,40 @@ const ReviewSchema = z.object({
   text: z.string().trim().min(3, 'Votre avis est trop court.').max(1000, 'Votre avis est trop long (1000 caractères max.).'),
 });
 
-catalogRouter.post('/products/:id/reviews', requireAuth, (req, res) => {
+catalogRouter.post('/products/:id/reviews', requireAuth, async (req, res) => {
   const user = currentUser(req);
-  const product = getProduct(String(req.params.id));
+  const product = await getProduct(String(req.params.id));
   if (!product) throw notFound('Ce produit n’est plus disponible.');
   const data = parse(ReviewSchema, req.body);
 
-  if (db.prepare('SELECT 1 FROM reviews WHERE user_id = ? AND product_id = ?').get(user.id, product.id)) {
+  if (await db.get('SELECT 1 FROM reviews WHERE user_id = ? AND product_id = ?', user.id, product.id)) {
     throw conflict('Vous avez déjà donné votre avis sur ce produit.');
   }
   // « Achat vérifié » seulement si le client a réellement commandé ce produit.
   const verified = Boolean(
-    db
-      .prepare('SELECT 1 FROM orders o JOIN order_items i ON i.order_id = o.id WHERE o.user_id = ? AND i.product_id = ?')
-      .get(user.id, product.id)
+    await db.get('SELECT 1 FROM orders o JOIN order_items i ON i.order_id = o.id WHERE o.user_id = ? AND i.product_id = ?', user.id, product.id)
   );
-  const me = db.prepare('SELECT name, location FROM users WHERE id = ?').get(user.id) as Row;
+  const me = (await db.get('SELECT name, location FROM users WHERE id = ?', user.id)) as Row;
   const [firstName, lastName = ''] = String(me.name).split(' ');
   const author = `${firstName}${lastName ? ` ${lastName.charAt(0).toUpperCase()}.` : ''}`;
   const city = String(me.location).split(',')[0] ?? '';
   const id = crypto.randomUUID();
 
-  transaction(() => {
-    db.prepare(
-      'INSERT INTO reviews (id, product_id, user_id, author_name, city, rating, text, verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(id, product.id, user.id, author, city, data.rating, data.text, verified ? 1 : 0);
-    db.prepare(
+  await transaction(async () => {
+    await db.run(
+      'INSERT INTO reviews (id, product_id, user_id, author_name, city, rating, text, verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      id, product.id, user.id, author, city, data.rating, data.text, verified ? 1 : 0
+    );
+    await db.run(
       `UPDATE products SET rating = (rating * reviews_count + ?) / (reviews_count + 1), reviews_count = reviews_count + 1
-       WHERE id = ?`
-    ).run(data.rating, product.id);
+       WHERE id = ?`,
+      data.rating, product.id
+    );
   });
 
   res.status(201).json({
-    review: toReview(db.prepare('SELECT * FROM reviews WHERE id = ?').get(id) as Row),
-    product: getProduct(product.id),
+    review: toReview((await db.get('SELECT * FROM reviews WHERE id = ?', id)) as Row),
+    product: await getProduct(product.id),
   });
 });
 
@@ -114,13 +112,13 @@ const SHOP_SELECT = `
 // Liste publique, sans connexion : plafonnée pour qu'une seule requête ne puisse pas tout faire lire.
 const MAX_SHOPS_LISTED = 200;
 
-catalogRouter.get('/shops', (_req, res) => {
-  const rows = db.prepare(`${SHOP_SELECT} WHERE s.verified = 1 ORDER BY s.rowid LIMIT ?`).all(MAX_SHOPS_LISTED) as Row[];
+catalogRouter.get('/shops', async (_req, res) => {
+  const rows = await db.all(`${SHOP_SELECT} WHERE s.verified = 1 ORDER BY s.rowid LIMIT ?`, MAX_SHOPS_LISTED);
   res.json({ shops: rows.map(toShop) });
 });
 
-catalogRouter.get('/shops/:id', (req, res) => {
-  const row = db.prepare(`${SHOP_SELECT} WHERE s.id = ?`).get(String(req.params.id)) as Row | undefined;
+catalogRouter.get('/shops/:id', async (req, res) => {
+  const row = await db.get(`${SHOP_SELECT} WHERE s.id = ?`, String(req.params.id));
   if (!row) throw notFound('Boutique introuvable.');
   res.json({ shop: toShop(row) });
 });
@@ -142,27 +140,28 @@ const slugify = (value: string) =>
     .replace(/^-|-$/g, '')
     .slice(0, 40) || 'boutique';
 
-catalogRouter.post('/shops', requireAuth, (req, res) => {
+catalogRouter.post('/shops', requireAuth, async (req, res) => {
   const user = currentUser(req);
   const data = parse(ShopSchema, req.body);
-  if (db.prepare('SELECT 1 FROM shops WHERE owner_id = ?').get(user.id)) throw conflict('Vous avez déjà une boutique.');
+  if (await db.get('SELECT 1 FROM shops WHERE owner_id = ?', user.id)) throw conflict('Vous avez déjà une boutique.');
   const id = `${slugify(data.name)}-${crypto.randomBytes(3).toString('hex')}`;
-  db.prepare(
-    'INSERT INTO shops (id, owner_id, name, location, category, phone, description) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, user.id, data.name, data.location, data.category, data.phone, data.description);
-  res.status(201).json({ user: loadMe(user.id) });
+  await db.run(
+    'INSERT INTO shops (id, owner_id, name, location, category, phone, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    id, user.id, data.name, data.location, data.category, data.phone, data.description
+  );
+  res.status(201).json({ user: await loadMe(user.id) });
 });
 
 /* ---------- Gestion des produits par le vendeur ---------- */
 
-const myShop = (userId: string) => {
-  const shop = db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(userId) as Row | undefined;
+const myShop = async (userId: string) => {
+  const shop = await db.get('SELECT * FROM shops WHERE owner_id = ?', userId);
   if (!shop) throw forbidden('Ouvrez d’abord votre boutique dans l’espace vendeur.');
   return shop;
 };
 
-const ownedProduct = (productId: string, shopId: string) => {
-  const row = db.prepare('SELECT shop_id FROM products WHERE id = ? AND deleted_at IS NULL').get(productId) as Row | undefined;
+const ownedProduct = async (productId: string, shopId: string) => {
+  const row = await db.get('SELECT shop_id FROM products WHERE id = ? AND deleted_at IS NULL', productId);
   if (!row) throw notFound('Produit introuvable.');
   if (row.shop_id !== shopId) throw forbidden('Ce produit n’appartient pas à votre boutique.');
 };
@@ -188,9 +187,9 @@ const ProductSchema = z.object({
   extraImagesData: z.array(z.string().max(4_000_000)).max(2, '3 photos maximum par produit.').optional(),
 });
 
-catalogRouter.post('/products', requireAuth, (req, res) => {
+catalogRouter.post('/products', requireAuth, async (req, res) => {
   const user = currentUser(req);
-  const shop = myShop(user.id);
+  const shop = await myShop(user.id);
   const data = parse(ProductSchema, req.body);
   if (data.characteristics && Object.keys(data.characteristics).length > 20) throw badRequest('20 caractéristiques maximum.');
 
@@ -199,11 +198,10 @@ catalogRouter.post('/products', requireAuth, (req, res) => {
   const hasDiscount = data.originalPrice !== undefined && data.originalPrice > data.price;
   const id = `${slugify(data.title)}-${crypto.randomBytes(3).toString('hex')}`;
 
-  db.prepare(
+  await db.run(
     `INSERT INTO products (id, shop_id, title, description, price, original_price, discount_badge, category, subcategory,
        brand, location, stock, image, additional_images, characteristics, sizes, is_new, is_promo, position)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1000)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1000)`,
     id,
     String(shop.id),
     data.title,
@@ -222,7 +220,7 @@ catalogRouter.post('/products', requireAuth, (req, res) => {
     data.sizes?.length ? JSON.stringify(data.sizes) : null,
     hasDiscount ? 1 : 0
   );
-  res.status(201).json({ product: getProduct(id) });
+  res.status(201).json({ product: await getProduct(id) });
 });
 
 const ProductPatchSchema = z
@@ -235,25 +233,27 @@ const ProductPatchSchema = z
   .partial()
   .refine((v) => Object.keys(v).length > 0, 'Aucune modification fournie.');
 
-catalogRouter.patch('/products/:id', requireAuth, (req, res) => {
+catalogRouter.patch('/products/:id', requireAuth, async (req, res) => {
   const user = currentUser(req);
-  const shop = myShop(user.id);
-  ownedProduct(String(req.params.id), String(shop.id));
+  const shop = await myShop(user.id);
+  await ownedProduct(String(req.params.id), String(shop.id));
   const data = parse(ProductPatchSchema, req.body);
   const columns = { title: data.title, description: data.description, price: data.price, stock: data.stock };
+  // Noms de colonnes fixés ci-dessus (jamais venus de la requête) ; les valeurs passent par « ? ».
   const entries = Object.entries(columns).filter(([, v]) => v !== undefined) as [string, string | number][];
-  db.prepare(`UPDATE products SET ${entries.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`).run(
+  await db.run(
+    `UPDATE products SET ${entries.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`,
     ...entries.map(([, v]) => v),
     String(req.params.id)
   );
-  res.json({ product: getProduct(String(req.params.id)) });
+  res.json({ product: await getProduct(String(req.params.id)) });
 });
 
-catalogRouter.delete('/products/:id', requireAuth, (req, res) => {
+catalogRouter.delete('/products/:id', requireAuth, async (req, res) => {
   const user = currentUser(req);
-  const shop = myShop(user.id);
-  ownedProduct(String(req.params.id), String(shop.id));
+  const shop = await myShop(user.id);
+  await ownedProduct(String(req.params.id), String(shop.id));
   // Suppression « douce » : les commandes passées gardent leur historique.
-  db.prepare('UPDATE products SET deleted_at = ? WHERE id = ?').run(nowIso(), String(req.params.id));
+  await db.run('UPDATE products SET deleted_at = ? WHERE id = ?', nowIso(), String(req.params.id));
   res.status(204).end();
 });
