@@ -358,19 +358,31 @@ export const AccountScreen: React.FC<AccountScreenProps> = ({
                     ['phone', 'account.field.phone', 'tel', 'tel'],
                     ['location', 'account.field.location', 'text', 'address-level2'],
                   ] as const
-                ).map(([key, label, type, autoComplete]) => (
-                  <label key={key} className="text-sm font-medium text-slate-700">
-                    {t(label)}
-                    <input
-                      type={type}
-                      value={profile[key]}
-                      onChange={(e) => setProfile({ ...profile, [key]: e.target.value })}
-                      autoComplete={autoComplete}
-                      className={`${inputClass} mt-1.5`}
-                      required
-                    />
-                  </label>
-                ))}
+                )
+                  // Achat sans compte : pas d'adresse e-mail à afficher.
+                  .filter(([key]) => key !== 'email' || user.email)
+                  .map(([key, label, type, autoComplete]) => {
+                    // L'adresse vient du compte Google (vérifiée) : affichée, jamais modifiable ici.
+                    const fromGoogle = key === 'email';
+                    return (
+                      <label key={key} className="text-sm font-medium text-slate-700">
+                        {t(label)}
+                        <input
+                          type={type}
+                          value={profile[key]}
+                          onChange={(e) => setProfile({ ...profile, [key]: e.target.value })}
+                          autoComplete={autoComplete}
+                          readOnly={fromGoogle}
+                          aria-readonly={fromGoogle || undefined}
+                          className={`${inputClass} mt-1.5 ${fromGoogle ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : ''}`}
+                          required={!fromGoogle}
+                        />
+                        {fromGoogle && (
+                          <span className="block text-xs text-slate-400 font-normal mt-1.5">{t('account.emailFromGoogle')}</span>
+                        )}
+                      </label>
+                    );
+                  })}
               </div>
               {profileStatus.error && (
                 <p
@@ -396,7 +408,7 @@ export const AccountScreen: React.FC<AccountScreenProps> = ({
             <div className={`${cardClass} p-4 lg:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3`}>
               <div>
                 <h2 className="text-base font-semibold text-slate-900">{t('account.session')}</h2>
-                <p className="text-sm text-slate-500 mt-0.5">{t('account.signedInAs', { email: user.email })}</p>
+                <p className="text-sm text-slate-500 mt-0.5">{t('account.signedInAs', { email: user.email || user.name })}</p>
               </div>
               <div className="sm:w-48">{logoutButton}</div>
             </div>
@@ -428,7 +440,7 @@ export const AccountScreen: React.FC<AccountScreenProps> = ({
             <h1 className="text-3xl font-semibold">{user.name}</h1>
             <p className="text-sm text-white/70 mt-1">
               <i className="fa-solid fa-location-dot mr-1.5"></i>
-              {user.location} • {user.email}
+              {[user.location, user.email].filter(Boolean).join(' • ')}
             </p>
           </div>
           <div className="relative text-right">
@@ -446,7 +458,7 @@ export const AccountScreen: React.FC<AccountScreenProps> = ({
               <Avatar user={user} className="w-24 h-24 mx-auto ring-4 ring-white shadow-md text-3xl animate-scale-in" />
               <h1 className="text-lg font-semibold text-slate-900 mt-3 uppercase">{t('account.greeting', { name: user.name })}</h1>
               <button onClick={() => setTab('profile')} className="text-sm text-slate-500 hover:text-brand-900 cursor-pointer">
-                {user.email} <i className="fa-solid fa-chevron-right text-[10px] ml-0.5"></i>
+                {user.email || t('account.personalInfo')} <i className="fa-solid fa-chevron-right text-[10px] ml-0.5"></i>
               </button>
             </div>
 

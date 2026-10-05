@@ -50,7 +50,15 @@ interface GeniusPayment {
   checkout_url?: string;
   payment_url?: string;
   environment?: string;
+  metadata?: { order_id?: string };
 }
+
+/**
+ * GeniusPay a répondu et refusé la demande : rien n'a été créé chez eux, une nouvelle tentative est sans risque.
+ * À l'inverse, sans réponse (délai dépassé, coupure) ou sur une erreur de leur serveur, le paiement a pu être créé :
+ * on ne réessaie pas, pour ne jamais ouvrir deux paiements pour une même commande.
+ */
+class GeniusPayRefused extends HttpError {}
 
 const secretKey = () => {
   const key = process.env.GENIUSPAY_SECRET_KEY?.trim();
@@ -78,8 +86,12 @@ const geniusPay = async <T>(method: 'GET' | 'POST', path: string, body?: unknown
   }
   const json = (await response.json().catch(() => null)) as { success?: boolean; data?: T; error?: unknown } | null;
   if (!response.ok || !json?.success || json.data === undefined) {
-    console.error(`[api] GeniusPay ${method} ${path} : ${response.status} ${JSON.stringify(json?.error ?? json).slice(0, 300)}`);
-    throw new HttpError(response.status === 404 ? 404 : 502, 'Le service de paiement a refusé la demande. Réessayez ou choisissez le paiement à la livraison.');
+    // Code et message d'erreur seulement : la réponse complète peut reprendre nom, téléphone et e-mail du client.
+    const error = json?.error as { code?: unknown; message?: unknown } | string | undefined;
+    const detail = typeof error === 'string' ? error : [error?.code, error?.message].filter(Boolean).map(String).join(' — ');
+    console.error(`[api] GeniusPay ${method} ${path} : ${response.status} ${detail.slice(0, 200) || 'réponse inattendue'}`);
+    const Refusal = response.status < 500 ? GeniusPayRefused : HttpError;
+    throw new Refusal(response.status === 404 ? 404 : 502, 'Le service de paiement a refusé la demande. Réessayez ou choisissez le paiement à la livraison.');
   }
   return json.data;
 };
@@ -104,7 +116,9 @@ export interface PaymentStart {
 
 /**
  * Crée le paiement GeniusPay d'une commande. Essaie d'abord le moyen choisi par le client (paiement direct) ;
- * si GeniusPay le refuse, repasse par sa page de paiement où le client choisit lui-même.
+ * si GeniusPay le refuse explicitement, repasse par sa page de paiement où le client choisit lui-même.
+ * GeniusPay ne propose pas de clé d'idempotence (documentation de l'API) : l'unicité est garantie de notre côté
+ * (un seul appel par commande, pas de nouvel essai sans réponse claire, référence unique en base).
  */
 export const startPayment = async (params: {
   orderId: string;
@@ -127,7 +141,7 @@ export const startPayment = async (params: {
   try {
     payment = await geniusPay<GeniusPayment>('POST', '/payments', code ? { ...base, payment_method: code } : base);
   } catch (error) {
-    if (!code || !(error instanceof HttpError) || error.status === 503) throw error;
+    if (!code || !(error instanceof GeniusPayRefused)) throw error;
     payment = await geniusPay<GeniusPayment>('POST', '/payments', base);
   }
   const url = payment.payment_url || payment.checkout_url;
@@ -160,6 +174,11 @@ export const reconcileOrderPayment = async (orderId: string, options: { cancelIf
     const problems: string[] = [];
     if (Number(payment.amount) !== Number(order.total)) problems.push(`montant GeniusPay ${String(payment.amount)} ≠ total ${String(order.total)}`);
     if ((payment.currency ?? 'XOF') !== 'XOF') problems.push(`devise ${payment.currency}`);
+    // Ce paiement doit être exactement celui créé pour cette commande (contrôlé quand GeniusPay renvoie ces champs).
+    if (payment.reference && payment.reference !== reference) problems.push(`référence GeniusPay ${payment.reference} ≠ ${reference}`);
+    if (payment.metadata?.order_id && payment.metadata.order_id !== orderId) {
+      problems.push(`paiement émis pour la commande ${payment.metadata.order_id}`);
+    }
     if (order.status === 'annulée') problems.push('paiement reçu pour une commande déjà annulée : à rembourser ou à honorer');
     if (problems.length) {
       recordAnomaly(new TransactionRefused(orderId, [...problems, `référence ${reference}`]));
@@ -216,21 +235,48 @@ export const geniusPayWebhook = async (req: Request, res: Response) => {
     res.status(401).json({ error: 'Signature invalide.' });
     return;
   }
-  const event = JSON.parse(raw) as { event?: string; data?: { reference?: string; metadata?: { order_id?: string } } };
+  let event: { id?: unknown; event?: string; data?: { reference?: string; metadata?: { order_id?: string } } };
+  try {
+    event = JSON.parse(raw);
+  } catch {
+    res.status(400).json({ error: 'Notification illisible.' });
+    return;
+  }
+
+  // Anti-rejeu : chaque notification n'est traitée qu'une fois. Identifiant fourni par GeniusPay (« id »), sinon
+  // empreinte de la signature (unique pour un horodatage et un contenu donnés).
+  const eventId =
+    typeof event.id === 'string' && event.id.length > 0 && event.id.length <= 100
+      ? `id:${event.id}`
+      : `sig:${crypto.createHash('sha256').update(`${timestamp}.${signature}`).digest('hex')}`;
+  // Au-delà de 7 jours, GeniusPay ne renvoie plus une notification (et l'horodatage la refuserait déjà).
+  db.prepare('DELETE FROM payment_webhook_events WHERE received_at < ?').run(new Date(Date.now() - 7 * 86_400_000).toISOString());
+  if (db.prepare('INSERT OR IGNORE INTO payment_webhook_events (event_id) VALUES (?)').run(eventId).changes === 0) {
+    console.warn(`[api] Notification GeniusPay déjà traitée, ignorée (${eventId.slice(0, 24)}…).`);
+    res.json({ received: true, duplicate: true });
+    return;
+  }
+
   const reference = event.data?.reference;
   const orderId = event.data?.metadata?.order_id;
   // La commande doit correspondre à la fois au numéro et à la référence du paiement créé par Béthanie.
   const order = reference && orderId
-    ? (db.prepare('SELECT id FROM orders WHERE id = ? AND payment_reference = ?').get(orderId, reference) as Row | undefined)
+    ? (db.prepare('SELECT id FROM orders WHERE id = ? AND payment_reference = ?').get(String(orderId), String(reference)) as Row | undefined)
     : undefined;
   if (!order) {
     res.json({ received: true, ignored: true });
     return;
   }
-  // Le contenu de la notification n'est pas cru sur parole : le statut est redemandé à GeniusPay.
-  const result = await reconcileOrderPayment(String(order.id));
-  console.log(`[api] Notification GeniusPay ${event.event ?? ''} pour ${String(order.id)} : ${result}.`);
-  res.json({ received: true });
+  try {
+    // Le contenu de la notification n'est pas cru sur parole : le statut est redemandé à GeniusPay.
+    const result = await reconcileOrderPayment(String(order.id));
+    console.log(`[api] Notification GeniusPay ${event.event ?? ''} pour ${String(order.id)} : ${result}.`);
+    res.json({ received: true });
+  } catch (error) {
+    // Traitement impossible (GeniusPay injoignable…) : la notification redevient acceptable pour leur nouvel envoi.
+    db.prepare('DELETE FROM payment_webhook_events WHERE event_id = ?').run(eventId);
+    throw error;
+  }
 };
 
 /* ------------------------------------------------------------------ */

@@ -190,6 +190,14 @@ if (!orderColumns.some((column) => column.name === 'cancel_reason')) {
 if (!orderColumns.some((column) => column.name === 'customer_name')) {
   db.exec('ALTER TABLE orders ADD COLUMN customer_name TEXT');
 }
+// Notifications GeniusPay déjà traitées : une notification rejouée (même identifiant) est ignorée.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS payment_webhook_events (
+    event_id    TEXT PRIMARY KEY,
+    received_at TEXT NOT NULL DEFAULT ${NOW}
+  );
+  CREATE INDEX IF NOT EXISTS idx_payment_webhook_events_received ON payment_webhook_events(received_at);
+`);
 
 /* Contrôle des transactions et commission de Béthanie (RG-09, voir transactions.ts). */
 db.exec(`

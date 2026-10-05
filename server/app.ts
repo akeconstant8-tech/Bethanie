@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import cookieParser from 'cookie-parser';
-import express from 'express';
+import express, { type RequestHandler } from 'express';
+import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { loadUser, requireAuth, requireClientHeader } from './auth.ts';
 import { CSP_DIRECTIVES, OPENER_POLICY } from './security-policy.js';
@@ -15,6 +16,10 @@ import { catalogRouter } from './routes/catalog.ts';
 import { meRouter } from './routes/me.ts';
 import { ordersRouter } from './routes/orders.ts';
 
+/** Limite de requêtes par minute et par adresse IP (vraie adresse du visiteur sur Vercel : trust proxy). */
+const limited = (perMinute: number, error: string): RequestHandler =>
+  rateLimit({ windowMs: 60 * 1000, limit: perMinute, standardHeaders: 'draft-7', legacyHeaders: false, message: { error } });
+
 export const createApp = () => {
   const app = express();
   app.disable('x-powered-by');
@@ -26,14 +31,24 @@ export const createApp = () => {
       crossOriginOpenerPolicy: { policy: OPENER_POLICY },
     })
   );
-  // Corps brut conservé : la signature des notifications GeniusPay porte sur le texte exact reçu.
-  app.use(express.json({ limit: '4mb', verify: (req, _res, buf) => ((req as typeof req & { rawBody?: Buffer }).rawBody = buf) }));
   app.use(cookieParser());
 
   /* ---------- API ---------- */
   // Notifications de paiement GeniusPay : appelées par GeniusPay (signature vérifiée), avant l'exigence X-Bethanie.
-  app.post('/api/payments/webhook/geniuspay', geniusPayWebhook);
-  app.use('/api', requireClientHeader, loadUser);
+  // Corps brut conservé : la signature porte sur le texte exact reçu.
+  app.post(
+    '/api/payments/webhook/geniuspay',
+    limited(60, 'Trop de notifications.'),
+    express.json({ limit: '64kb', verify: (req, _res, buf) => ((req as typeof req & { rawBody?: Buffer }).rawBody = buf) }),
+    geniusPayWebhook
+  );
+  // Plafond général par adresse IP (le site en fait une poignée par écran) : coupe court aux rafales de requêtes.
+  app.use('/api', limited(300, 'Trop de requêtes. Réessayez dans une minute.'), requireClientHeader, loadUser);
+  // Corps des requêtes : 300 Ko suffisent partout ; seules les photos d'un produit (vendeur connecté) vont jusqu'à
+  // 4 Mo. Un visiteur anonyme ne peut donc plus faire lire 4 Mo au serveur sur n'importe quelle adresse.
+  const photoBody = express.json({ limit: '4mb' });
+  app.use('/api/products', (req, res, next) => (req.user ? photoBody(req, res, next) : next()));
+  app.use('/api', express.json({ limit: '300kb' }));
   // Commandes non payées depuis 2 h : annulées et stock remis en vente (au plus une vérification par minute).
   app.use('/api', sweepUnpaidOrders);
   app.get('/api/health', (_req, res) => res.json({ ok: true }));

@@ -53,7 +53,15 @@ export const describeFirebaseStatus = (status = firebaseStatus()) => {
 
 let cached: { auth: Auth; checkRevoked: boolean; projectId: string } | undefined;
 
+/** Variable des tests : avec elle, firebase-admin accepte des jetons NON signés (n'importe qui, y compris l'admin). */
+const emulatorInProduction = () =>
+  Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST?.trim()) && Boolean(process.env.VERCEL || process.env.NODE_ENV === 'production');
+
 const firebaseAuth = () => {
+  if (emulatorInProduction()) {
+    console.error('[api] FIREBASE_AUTH_EMULATOR_HOST est défini en production : connexions Google refusées. Retirez cette variable.');
+    throw new HttpError(503, 'La connexion Google n’est pas configurée sur le serveur.');
+  }
   if (cached) return cached;
   const status = firebaseStatus();
   if (status.ready === false) {

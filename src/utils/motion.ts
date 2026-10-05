@@ -68,7 +68,8 @@ export const isOnScreen = (element: Element) => {
  * (`data-cart-target` : barre d'onglets ou barre d'achat sur mobile, en-tête sur ordinateur), qui rebondit à l'arrivée.
  */
 export const flyToCart = (image: string, from: Element | null) => {
-  if (!from || prefersReducedMotion() || typeof Element.prototype.animate !== 'function') return;
+  // Lecture seule (navigateur sans Web Animations) : aucun objet n'est modifié ici.
+  if (!from || prefersReducedMotion() || typeof from.animate !== 'function') return;
   const target = [...document.querySelectorAll<HTMLElement>('[data-cart-target]')].find(isOnScreen);
   if (!target) return;
 
@@ -114,9 +115,13 @@ export const flyToCart = (image: string, from: Element | null) => {
   );
 
   let done = false;
+  // Sécurité : onglet passé en arrière-plan, animation annulée… Annulée dès que la vignette est arrivée.
+  let fallback = 0;
   const land = () => {
     if (done) return;
     done = true;
+    window.clearTimeout(fallback);
+    shrink.onfinish = null;
     flyer.remove();
     target.animate(
       [{ transform: 'scale(1)' }, { transform: 'scale(1.3)' }, { transform: 'scale(0.92)' }, { transform: 'scale(1)' }],
@@ -124,8 +129,7 @@ export const flyToCart = (image: string, from: Element | null) => {
     );
   };
   shrink.onfinish = land;
-  // Sécurité : onglet passé en arrière-plan, animation annulée…
-  window.setTimeout(land, duration + 300);
+  fallback = window.setTimeout(land, duration + 300);
 };
 
 /* ------------------------------------------------------------------ */
@@ -207,39 +211,44 @@ export const useMotionPreference = () =>
 /* Onde au toucher sur les boutons (classe « ripple »)                 */
 /* ------------------------------------------------------------------ */
 
-// Protège contre un double appel (StrictMode, HMR, futur refactor) : un seul écouteur pour toute la vie de la page.
-let ripplesInitialized = false;
+/** Arrête les ondes (retire l'écouteur) ; `null` tant que `initRipples()` n'a pas été appelée. */
+let stopRipples: (() => void) | null = null;
+
+const startRipple = (event: PointerEvent) => {
+  const host = (event.target as Element | null)?.closest?.<HTMLElement>('.ripple');
+  if (!host || host.matches(':disabled') || prefersReducedMotion()) return;
+  const rect = host.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height) * 2.2;
+  const wave = document.createElement('span');
+  wave.className = 'ripple-wave';
+  wave.setAttribute('aria-hidden', 'true');
+  wave.style.cssText = `width:${size}px;height:${size}px;left:${event.clientX - rect.left - size / 2}px;top:${event.clientY - rect.top - size / 2}px`;
+  host.appendChild(wave);
+  // Filet de sécurité si « animationend » ne se déclenche jamais (onglet en arrière-plan, animation coupée).
+  const fallback = window.setTimeout(() => wave.remove(), 1000);
+  // { once: true } : l'écouteur se retire de lui-même ; le filet de sécurité devenu inutile est annulé.
+  wave.addEventListener(
+    'animationend',
+    () => {
+      window.clearTimeout(fallback);
+      wave.remove();
+    },
+    { once: true }
+  );
+};
 
 /**
  * Un seul écouteur pour toute l'application : une onde part du point touché sur tout élément `.ripple`.
- * Volontairement permanent (comme `initPwa()`) : appelé une fois depuis `main.tsx`, avant le rendu React, donc hors
- * du cycle de montage/démontage d'un composant — il n'y a rien à « nettoyer » tant que la page reste ouverte.
- * `ripplesInitialized` empêche seulement l'accumulation d'écouteurs si la fonction était rappelée par erreur.
+ * Appelée une fois depuis `main.tsx` ; un nouvel appel ne rajoute pas d'écouteur. Renvoie la fonction qui le retire.
  */
 export const initRipples = () => {
-  if (ripplesInitialized) return;
-  ripplesInitialized = true;
-  document.addEventListener(
-    'pointerdown',
-    (event) => {
-      const host = (event.target as Element | null)?.closest?.<HTMLElement>('.ripple');
-      if (!host || host.matches(':disabled') || prefersReducedMotion()) return;
-      const rect = host.getBoundingClientRect();
-      const size = Math.max(rect.width, rect.height) * 2.2;
-      const wave = document.createElement('span');
-      wave.className = 'ripple-wave';
-      wave.setAttribute('aria-hidden', 'true');
-      wave.style.cssText = `width:${size}px;height:${size}px;left:${event.clientX - rect.left - size / 2}px;top:${event.clientY - rect.top - size / 2}px`;
-      host.appendChild(wave);
-      // { once: true } : le navigateur retire lui-même cet écouteur après son unique déclenchement — rien à nettoyer.
-      wave.addEventListener('animationend', () => wave.remove(), { once: true });
-      // Filet de sécurité si « animationend » ne se déclenche jamais (onglet en arrière-plan, animation coupée) :
-      // le minuteur est à usage unique (pas d'intervalle) et se résout de lui-même ; wave.remove() est sans effet
-      // si l'élément a déjà été retiré par le gestionnaire ci-dessus.
-      window.setTimeout(() => wave.remove(), 1000);
-    },
-    { passive: true }
-  );
+  if (stopRipples) return stopRipples;
+  document.addEventListener('pointerdown', startRipple, { passive: true });
+  stopRipples = () => {
+    document.removeEventListener('pointerdown', startRipple);
+    stopRipples = null;
+  };
+  return stopRipples;
 };
 
 /* ------------------------------------------------------------------ */

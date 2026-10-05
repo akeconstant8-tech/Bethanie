@@ -85,7 +85,45 @@ Tests réalisés (serveur isolé, données de test) : commande sur deux boutique
 transaction faussée (refusée, aucune commande créée, stock inchangé, alerte au journal), total modifié dans la base
 (écart détecté), ligne du journal modifiée (détectée, numéro de ligne donné), accès refusé (403) à une cliente.
 
-## 7. Variables à définir en production
+## 7. Audit complémentaire — 5 octobre 2026 (achat sans compte, GeniusPay)
+
+Contexte : achat sans compte (profil invité ouvert à la commande), paiement réel GeniusPay (bac à sable), scan Herozion
+(22 alertes avant, 19 après). Chaque correction a été testée sur un serveur isolé (base temporaire).
+
+### Corrigés
+
+| ID | Gravité | Constat | Correction |
+|---|---|---|---|
+| S8 | Élevée | L’adresse e-mail du profil se modifiait librement, sans vérification, et la connexion Google rattache un compte existant par son adresse : n’importe qui (un invité suffit) pouvait préparer un compte au nom d’une victime et garder sa session ouverte quand celle-ci se connectait | E-mail non modifiable (`PATCH /api/me`, champ en lecture seule) ; quand le vrai titulaire se connecte, toutes les sessions ouvertes avant lui sont fermées. Testé : 400 sur changement d’e-mail, session de l’attaquant fermée |
+| S9 | Élevée | Si `FIREBASE_AUTH_EMULATOR_HOST` (variable de test) se retrouvait sur Vercel, des jetons non signés seraient acceptés, y compris pour une adresse administrateur | Connexions Google refusées (503) quand cette variable est présente en production. Testé |
+| S10 | Moyenne | Une adresse retirée de `ADMIN_EMAILS` gardait le rôle admin | Rôle revérifié à chaque requête et retiré en base. Testé : 403, rôle remis à « customer » |
+| S11 | Moyenne | Tout visiteur anonyme pouvait faire lire 4 Mo au serveur sur n’importe quelle adresse ; aucune limite générale de requêtes | 300 Ko partout, 4 Mo seulement pour les photos d’un vendeur connecté ; 300 requêtes/minute par adresse IP ; 60/minute sur les notifications GeniusPay ; 30 vérifications de paiement/minute par compte ; liste publique des boutiques plafonnée à 200. Testé (413, 429) |
+| S12 | Moyenne | Notification GeniusPay rejouable pendant 5 minutes (chacune déclenche un appel à GeniusPay) ; contenu illisible non géré | Chaque notification n’est traitée qu’une fois (identifiant GeniusPay, sinon empreinte de la signature ; table `payment_webhook_events`) ; libérée si le traitement échoue, pour le nouvel envoi de GeniusPay ; contenu illisible → 400. Testé |
+| S13 | Moyenne | Après un délai dépassé chez GeniusPay, le serveur relançait la création du paiement : deux paiements possibles pour une commande | Nouvel essai seulement si GeniusPay a répondu par un refus clair (GeniusPay ne propose pas de clé d’idempotence, vérifié dans sa documentation) |
+| S14 | Faible | Paiement reçu : seuls le montant et la devise étaient comparés | Référence du paiement et numéro de commande renvoyés par GeniusPay vérifiés aussi (anomalie au journal en cas d’écart). Vrai paiement bac à sable testé : « payé », sans fausse alerte |
+| S15 | Faible | Erreurs GeniusPay journalisées en entier (peuvent reprendre nom, téléphone, e-mail du client) ; adresse interne des invités renvoyée au navigateur | Code et message d’erreur seulement ; adresse interne jamais renvoyée |
+| S16 | Faible | Onde au toucher et vignette « vers le panier » : écouteur non retirable, minuteurs de secours jamais annulés ; noms réservés (`constructor`…) acceptés dans les caractéristiques d’un produit | Écouteur retirable, minuteurs annulés ; noms réservés refusés |
+
+### Restent à traiter
+
+| ID | Gravité | Constat | Correction proposée |
+|---|---|---|---|
+| C1 (suite) | Critique | En ligne, `DEMO_MODE=true` : le client peut faire avancer **sa propre** commande jusqu’à « livrée », ce qui marque payée une commande « paiement à la livraison » et compte une commission fictive — désormais sans même avoir de compte | `DEMO_MODE=false` dans Vercel dès que les tests de démonstration sont finis |
+| M5 | Moyenne | Achat sans compte : une commande « paiement à la livraison » ne s’annule jamais d’elle-même ; quelqu’un qui change d’adresse IP peut bloquer du stock (10 commandes/heure par adresse, jusqu’à 99 articles par ligne) | Décision du porteur : quantité maximale par commande invitée, confirmation par SMS/WhatsApp, ou annulation automatique si le vendeur ne confirme pas |
+| F6 | Faible | Commandes d’un client et d’une boutique renvoyées sans pagination (limitées à son propre compte) | Pagination quand les volumes le justifieront |
+
+### Alertes du scan vérifiées une à une (non modifiées)
+
+| Emplacement | Pourquoi ce n’est pas une faille |
+|---|---|
+| `server/db.ts` 171-178 (« injection de commande », « requête non limitée ») | Mise à jour du schéma au démarrage : texte SQL fixe, aucune donnée saisie ; `PRAGMA table_info` renvoie quelques colonnes |
+| `server/payments.ts`, `server/routes/assistant.ts`, `server/controle.ts` (« données sensibles dans les journaux ») | Ces lignes écrivent le **nom** d’une variable absente ou refusée, jamais sa valeur (vérifié dans les journaux de test) |
+| `server/payments.ts` (« clé d’idempotence manquante ») | GeniusPay n’en propose pas ; unicité assurée côté Béthanie (S12, S13, référence unique en base, mise à jour conditionnelle) |
+| `server/transactions.ts` (5 « requêtes non limitées ») | Contrôle complet voulu (chaîne du journal) ; seulement administrateur, au démarrage ou en ligne de commande, avec cache de 15 s et 20 demandes/minute |
+| `server/http.ts:52` (« informations de debug ») | Messages écrits à la main en français, plus le garde-fou contre toute trace technique (testé) |
+| `src/api/firebaseAuth.ts:13` (« clé en dur ») | Clé web publique de Firebase (`VITE_`), faite pour être dans le site |
+
+## 8. Variables à définir en production
 
 | Variable | Rôle |
 |---|---|

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { PAYMENT_OPTIONS } from '../../src/utils/commerce.ts';
 import { currentUser } from '../auth.ts';
 import { db, transaction, type Row } from '../db.ts';
-import { badRequest, conflict, notFound, parse } from '../http.ts';
+import { badRequest, notFound, parse } from '../http.ts';
 import { loadMe } from '../serializers.ts';
 
 /** Profil, adresses, moyens de paiement et favoris de l'utilisateur connecté. */
@@ -12,7 +12,8 @@ export const meRouter = Router();
 
 const ProfileSchema = z.object({
   name: z.string().trim().min(2, 'Indiquez votre nom complet.').max(80),
-  email: z.string().trim().toLowerCase().email('Adresse e-mail invalide.').max(120),
+  // Lue seulement pour refuser un changement : l'adresse vient du compte Google (vérifiée), jamais d'une saisie.
+  email: z.string().trim().toLowerCase().max(120).optional(),
   phone: z.string().trim().max(30).refine((v) => v.replace(/\D/g, '').length >= 8, 'Numéro de téléphone invalide.'),
   location: z.string().trim().max(120),
 });
@@ -20,12 +21,12 @@ const ProfileSchema = z.object({
 meRouter.patch('/', (req, res) => {
   const user = currentUser(req);
   const data = parse(ProfileSchema, req.body);
-  if (db.prepare('SELECT 1 FROM users WHERE email = ? AND id <> ?').get(data.email, user.id)) {
-    throw conflict('Cette adresse e-mail est déjà utilisée par un autre compte.');
+  // Une adresse saisie librement permettrait de préparer un compte au nom de quelqu'un d'autre : à sa première
+  // connexion Google, cette personne serait rattachée à ce compte (voir linkGoogleAccount).
+  if (data.email && data.email !== user.email.toLowerCase()) {
+    throw badRequest('L’adresse e-mail est celle de votre compte Google : elle ne peut pas être modifiée ici.');
   }
-  db.prepare('UPDATE users SET name = ?, email = ?, phone = ?, location = ? WHERE id = ?').run(
-    data.name, data.email, data.phone, data.location, user.id
-  );
+  db.prepare('UPDATE users SET name = ?, phone = ?, location = ? WHERE id = ?').run(data.name, data.phone, data.location, user.id);
   res.json({ user: loadMe(user.id) });
 });
 

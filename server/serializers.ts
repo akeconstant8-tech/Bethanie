@@ -1,5 +1,6 @@
 import type { Me, Order, OrderStatus, PaymentStatus, Product, Review, SellerShop, Shop } from '../src/types/index.ts';
 import { ORDER_FLOW, formatDate, formatTime } from '../src/utils/commerce.ts';
+import { isGuestEmail } from './auth.ts';
 import { db, type Row } from './db.ts';
 
 const json = <T>(value: unknown): T | undefined =>
@@ -109,7 +110,8 @@ export const loadMe = (userId: string): Me => {
   return {
     id: String(user.id),
     name: String(user.name),
-    email: String(user.email),
+    // Achat sans compte : l'adresse interne n'est pas une donnée du client, elle n'est pas renvoyée.
+    email: isGuestEmail(String(user.email)) ? '' : String(user.email),
     phone: String(user.phone),
     avatar: String(user.avatar),
     location: String(user.location),

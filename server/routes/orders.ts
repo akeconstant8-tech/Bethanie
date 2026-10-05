@@ -223,10 +223,21 @@ ordersRouter.post('/orders/:id/pay', (req, res) => {
   res.json({ order: loadOrders([getOrderRow(String(row.id))])[0] });
 });
 
+// Chaque vérification interroge GeniusPay : le suivi en fait au plus 9 par commande ; 30 par minute et par compte
+// laissent de la marge sans permettre de saturer GeniusPay (qui pourrait alors bloquer Béthanie).
+const paymentCheckLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => currentUser(req).id,
+  message: { error: 'Trop de vérifications de paiement. Réessayez dans une minute.' },
+});
+
 /** Retour de la page de paiement : le serveur demande le statut à GeniusPay et met la commande à jour. */
-ordersRouter.post('/orders/:id/payment/check', async (req, res) => {
+ordersRouter.post('/orders/:id/payment/check', paymentCheckLimiter, async (req, res) => {
   const user = currentUser(req);
-  const row = getOrderRow(req.params.id);
+  const row = getOrderRow(String(req.params.id));
   if (row.user_id !== user.id) throw notFound('Commande introuvable.');
   if (row.payment_reference && row.payment_status === 'en_attente') await reconcileOrderPayment(String(row.id));
   res.json({ order: loadOrders([getOrderRow(String(row.id))])[0] });

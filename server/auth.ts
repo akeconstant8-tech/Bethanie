@@ -22,6 +22,18 @@ declare global {
 
 export const SESSION_COOKIE = 'bethanie_session';
 
+/** Adresses Google vérifiées listées dans ADMIN_EMAILS (séparées par des virgules). */
+export const isAdminEmail = (email: string) =>
+  (process.env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(email.trim().toLowerCase());
+
+/** Domaine interne des profils d'achat sans compte : jamais montré, ne correspond à aucune adresse Google. */
+const GUEST_EMAIL_DOMAIN = '@invite.bethanie.local';
+export const isGuestEmail = (email: string) => email.endsWith(GUEST_EMAIL_DOMAIN);
+
 /* Compatibilité avec la colonne password_hash du schéma SQLite existant. */
 
 const SCRYPT_KEYLEN = 64;
@@ -72,7 +84,13 @@ export const loadUser = (req: Request, res: Response, next: NextFunction) => {
       .get(sha256(token)) as Row | undefined;
 
     if (row && String(row.expires_at) > new Date().toISOString()) {
-      req.user = { id: String(row.id), name: String(row.name), email: String(row.email), role: row.role as AuthUser['role'] };
+      let role = row.role as AuthUser['role'];
+      // Une adresse retirée de ADMIN_EMAILS perd le rôle tout de suite, sans attendre une nouvelle connexion.
+      if (role === 'admin' && !isAdminEmail(String(row.email))) {
+        db.prepare(`UPDATE users SET role = 'customer' WHERE id = ?`).run(String(row.id));
+        role = 'customer';
+      }
+      req.user = { id: String(row.id), name: String(row.name), email: String(row.email), role };
     } else if (row) {
       destroySession(req, res);
     }
@@ -108,7 +126,7 @@ export const requireClientHeader = (req: Request, _res: Response, next: NextFunc
 export const createGuestAccount = (res: Response, name: string, phone: string): AuthUser => {
   const id = crypto.randomUUID();
   const cleanName = name.trim().slice(0, 80);
-  const email = `invite-${id}@invite.bethanie.local`;
+  const email = `invite-${id}${GUEST_EMAIL_DOMAIN}`;
   db.prepare('INSERT INTO users (id, name, email, phone, password_hash) VALUES (?, ?, ?, ?, ?)').run(
     id,
     cleanName,

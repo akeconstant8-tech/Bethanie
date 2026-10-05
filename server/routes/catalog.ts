@@ -111,8 +111,11 @@ const SHOP_SELECT = `
   SELECT s.*, (SELECT COUNT(*) FROM products p WHERE p.shop_id = s.id AND p.deleted_at IS NULL) AS articles_count
   FROM shops s`;
 
+// Liste publique, sans connexion : plafonnée pour qu'une seule requête ne puisse pas tout faire lire.
+const MAX_SHOPS_LISTED = 200;
+
 catalogRouter.get('/shops', (_req, res) => {
-  const rows = db.prepare(`${SHOP_SELECT} WHERE s.verified = 1 ORDER BY s.rowid`).all() as Row[];
+  const rows = db.prepare(`${SHOP_SELECT} WHERE s.verified = 1 ORDER BY s.rowid LIMIT ?`).all(MAX_SHOPS_LISTED) as Row[];
   res.json({ shops: rows.map(toShop) });
 });
 
@@ -176,7 +179,11 @@ const ProductSchema = z.object({
   stock: z.number().int().min(0).max(100_000),
   description: z.string().trim().min(10, 'Décrivez votre produit en quelques mots (10 caractères min.).').max(3000),
   sizes: z.array(z.string().trim().min(1).max(20)).max(20).optional(),
-  characteristics: z.record(z.string().trim().max(60), z.string().trim().max(200)).optional(),
+  characteristics: z
+    .record(z.string().trim().max(60), z.string().trim().max(200))
+    // Noms réservés de JavaScript : refusés pour qu'aucun objet ne puisse être détourné en les relisant.
+    .refine((value) => !Object.keys(value).some((key) => ['__proto__', 'constructor', 'prototype'].includes(key)), 'Nom de caractéristique invalide.')
+    .optional(),
   imageData: z.string().max(4_000_000).optional(),
   extraImagesData: z.array(z.string().max(4_000_000)).max(2, '3 photos maximum par produit.').optional(),
 });

@@ -511,6 +511,7 @@ export const fr = {
   'account.personalInfo': 'Informations personnelles',
   'account.field.name': 'Nom complet',
   'account.field.email': 'Adresse e-mail',
+  'account.emailFromGoogle': 'Celle de votre compte Google : elle ne se modifie pas ici.',
   'account.field.phone': 'Téléphone',
   'account.field.location': 'Ville / Pays',
   'account.profileSaved': 'Profil mis à jour',

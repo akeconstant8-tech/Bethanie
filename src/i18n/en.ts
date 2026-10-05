@@ -511,6 +511,7 @@ export const en: Record<TranslationKey, string> = {
   'account.personalInfo': 'Personal information',
   'account.field.name': 'Full name',
   'account.field.email': 'Email address',
+  'account.emailFromGoogle': 'From your Google account: it can’t be changed here.',
   'account.field.phone': 'Phone',
   'account.field.location': 'City / Country',
   'account.profileSaved': 'Profile updated',

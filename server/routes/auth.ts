@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { createSession, destroySession, hashPassword } from '../auth.ts';
+import { createSession, destroySession, hashPassword, isAdminEmail } from '../auth.ts';
 import { db, transaction, type Row } from '../db.ts';
 import { describeFirebaseStatus, verifyGoogleIdToken } from '../firebase.ts';
 import { HttpError, conflict, parse } from '../http.ts';
@@ -21,12 +21,6 @@ const limiter = rateLimit({
 
 const email = z.string().trim().toLowerCase().email('Adresse e-mail invalide.').max(120);
 const GoogleSchema = z.object({ idToken: z.string().min(100).max(10_000) });
-
-const adminEmails = () =>
-  (process.env.ADMIN_EMAILS ?? '')
-    .split(',')
-    .map((v) => v.trim().toLowerCase())
-    .filter(Boolean);
 
 // Au démarrage : état de la connexion Google dans les journaux (noms des variables manquantes, jamais leurs valeurs).
 console.log(`[api] ${describeFirebaseStatus()}`);
@@ -48,6 +42,9 @@ export const linkGoogleAccount = (profile: { uid: string; email: string; name?: 
         throw conflict('Cette adresse e-mail est déjà liée à un autre compte Google.');
       }
       db.prepare('UPDATE users SET firebase_uid = ? WHERE id = ?').run(profile.uid, String(existingUser.id));
+      // Le vrai titulaire de l'adresse (vérifiée par Google) prend possession du compte : toute session ouverte
+      // avant lui (ancien compte, ou adresse saisie par quelqu'un d'autre) est fermée.
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(String(existingUser.id));
       return String(existingUser.id);
     }
 
@@ -78,7 +75,7 @@ authRouter.post('/google', limiter, async (req, res) => {
     name: typeof decoded.name === 'string' ? decoded.name : undefined,
   });
   // Administration : adresses Google vérifiées listées dans ADMIN_EMAILS (séparées par des virgules).
-  if (adminEmails().includes(verifiedEmail)) {
+  if (isAdminEmail(verifiedEmail)) {
     db.prepare(`UPDATE users SET role = 'admin' WHERE id = ? AND role <> 'admin'`).run(userId);
   }
   createSession(res, userId);
