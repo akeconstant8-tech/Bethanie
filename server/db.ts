@@ -22,6 +22,7 @@ db.exec(`
     email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
     phone         TEXT NOT NULL DEFAULT '',
     password_hash TEXT NOT NULL,
+    firebase_uid  TEXT,
     avatar        TEXT NOT NULL DEFAULT '',
     location      TEXT NOT NULL DEFAULT '',
     role          TEXT NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'admin')),
@@ -166,6 +167,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_reviews_user_product ON reviews(user_id, product_id) WHERE user_id IS NOT NULL;
 `);
+
+const userColumns = db.prepare('PRAGMA table_info(users)').all() as Row[];
+if (!userColumns.some((column) => column.name === 'firebase_uid')) {
+  db.exec('ALTER TABLE users ADD COLUMN firebase_uid TEXT');
+}
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid)');
 
 /** Exécute `fn` dans une transaction SQLite (tout ou rien). */
 export const transaction = <T>(fn: () => T): T => {

@@ -56,10 +56,8 @@ export const api = {
 
   /* Compte */
   me: () => request<{ user: Me | null }>('GET', '/auth/me').then((r) => r.user),
-  login: (email: string, password: string) =>
-    request<{ user: Me }>('POST', '/auth/login', { email, password }).then((r) => r.user),
-  register: (data: { name: string; email: string; phone: string; password: string }) =>
-    request<{ user: Me }>('POST', '/auth/register', data).then((r) => r.user),
+  googleSignIn: (idToken: string) =>
+    request<{ user: Me }>('POST', '/auth/google', { idToken }).then((r) => r.user),
   logout: () => request<void>('POST', '/auth/logout'),
   updateProfile: (data: { name: string; email: string; phone: string; location: string }) =>
     request<{ user: Me }>('PATCH', '/me', data).then((r) => r.user),

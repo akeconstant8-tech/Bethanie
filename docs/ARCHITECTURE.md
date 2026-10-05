@@ -1,6 +1,6 @@
 # Architecture — Béthanie
 
-> Version 1.6 — 3 octobre 2026. Décrit le code tel qu’il est dans ce dépôt.
+> Version 1.7 — 5 octobre 2026. Décrit le code tel qu’il est dans ce dépôt.
 > Besoins fonctionnels et règles métier : voir [CAHIER_DES_CHARGES.md](CAHIER_DES_CHARGES.md).
 > Maquette de référence de l’interface : [docs/maquette/maquette-ux-ui.jpg](maquette/maquette-ux-ui.jpg).
 
@@ -13,6 +13,7 @@
 | 1.4 | 3 octobre 2026 | Section « Boutiques certifiées » et lien « Boutiques » retirés ; la liste des boutiques (`GET /shops`) n’est plus chargée par le site (§4.3, §4.7) |
 | 1.5 | 3 octobre 2026 | Motion design renforcé (§4.8) : transitions orientées sur mobile, bannière animée, vol vers le panier, indicateur glissant de la barre d’onglets, inclinaison 3D des cartes, confettis au paiement ; réglage Windows « Effets d’animation » expliqué |
 | 1.6 | 3 octobre 2026 | Déploiement Vercel : l’API devient une fonction Vercel (`server/vercel.ts`, `scripts/build-vercel.mjs`, `vercel.json`) ; sans elle, `/api/*` répondait 404 et aucun produit ni photo ne s’affichait ; limite L22 |
+| 1.7 | 5 octobre 2026 | Connexion et création de compte Google via Firebase Authentication ; jeton vérifié côté API par Firebase Admin, sessions et données applicatives conservées dans SQLite |
 
 Les diagrammes sont écrits en [Mermaid](https://mermaid.js.org/) : GitHub les affiche directement ; dans
 VS Code, installez une extension d’aperçu Mermaid.
@@ -41,7 +42,8 @@ VS Code, installez une extension d’aperçu Mermaid.
 
 Béthanie est une **application web monopage** (React) qui dialogue en JSON avec une **API Express**.
 Les données sont dans une **base SQLite** (un seul fichier) et les photos importées par les vendeurs sur le
-disque du serveur. Aucun service tiers ne stocke de données (pas de Firebase pour l’instant).
+disque du serveur. Firebase Authentication fournit uniquement l’identité Google ; profils, sessions et données
+métier restent dans SQLite.
 
 ```mermaid
 flowchart TB
@@ -56,6 +58,7 @@ flowchart TB
     STATIC["Fichiers statiques<br/>dist/, /images, /uploads"]
     API["API Express<br/>/api/*"]
   end
+  FIREBASE["Firebase Authentication<br/>identité Google uniquement"]
   PAY["Agrégateur Mobile Money<br/>(lot 3, simulé)"]
 
   subgraph DATA["server/data/"]
@@ -66,6 +69,8 @@ flowchart TB
 
   SW -- "HTML, JS, CSS, polices, icônes, images" --> STATIC
   SW -- "JSON + cookie de session" --> API
+  SPA -- "Connexion Google, jeton ID" --> FIREBASE
+  SPA -- "Jeton Firebase vérifié par l’API" --> API
   STATIC --> UP
   API --> UP
   API --> DB
@@ -77,7 +82,7 @@ flowchart TB
 | Interface | React 19, TypeScript, Tailwind CSS 4, Font Awesome 6, polices Poppins et Cinzel (servies par le site) | Écrans, navigation, panier local, traduction FR / EN, animations |
 | Application installable | Manifeste web, service worker écrit à la main (`src/pwa/`), généré par un petit plugin Vite | Installation sur l’écran d’accueil, fonctionnement hors ligne, mises à jour |
 | Outillage front | Vite 6 | Serveur de développement, build de production |
-| API | Node.js ≥ 22.13, Express 5, zod, helmet, express-rate-limit, cookie-parser | Comptes, catalogue, commandes, sécurité |
+| API | Node.js ≥ 22.13, Express 5, zod, helmet, express-rate-limit, cookie-parser, firebase-admin | Sessions, vérification du jeton Google, catalogue, commandes, sécurité |
 | Données | `node:sqlite` (SQLite 3.5x intégré à Node) | Persistance, transactions |
 | Exécution TypeScript côté serveur | tsx | Lance `server/*.ts` sans étape de compilation |
 
@@ -459,7 +464,7 @@ flowchart LR
 
 | Module | Responsabilité |
 |---|---|
-| `routes/auth.ts` | Inscription, connexion (limitées en fréquence), déconnexion, session courante |
+| `routes/auth.ts` | Connexion Google vérifiée par Firebase Admin, création/rattachement du compte local, déconnexion, session courante |
 | `routes/me.ts` | Profil, adresses et moyens de paiement (gestion de l’élément « par défaut »), favoris |
 | `routes/catalog.ts` | Liste et fiche produits, avis, boutiques, création de boutique, gestion des produits par le vendeur |
 | `routes/orders.ts` | Création de commande (recalcul + réservation de stock), paiement simulé, avancement, vue vendeur |
@@ -479,7 +484,7 @@ flowchart LR
 | Méthode | Route | Accès |
 |---|---|---|
 | GET | `/health`, `/config` | public |
-| POST | `/auth/register`, `/auth/login`, `/auth/logout` | public |
+| POST | `/auth/google`, `/auth/logout` | public (`/auth/google` vérifie le jeton Firebase et crée ou retrouve le compte local) |
 | GET | `/auth/me` | public (renvoie `user: null` sans session) |
 | PATCH | `/me` | connecté |
 | POST / DELETE | `/me/addresses`, `/me/addresses/:id`, `/me/addresses/:id/default` | connecté |
@@ -537,7 +542,8 @@ erDiagram
   users {
     text id PK
     text email UK "insensible à la casse"
-    text password_hash "scrypt, sel, empreinte"
+    text firebase_uid UK "identifiant Firebase ; nullable pour comptes historiques"
+    text password_hash "empreinte legacy, non utilisée pour la connexion"
     text role "customer ou admin"
   }
   sessions {
@@ -620,10 +626,11 @@ sequenceDiagram
   participant F as Site React
   participant A as API
   participant D as SQLite
-  U->>F: e-mail et mot de passe
-  F->>A: POST /api/auth/login (en-tête X-Bethanie)
-  A->>D: lecture du compte par e-mail
-  A->>A: vérification scrypt (même durée si le compte n’existe pas)
+  U->>F: choisit « Continuer avec Google » ou « Créer un compte avec Google »
+  F->>F: Firebase Authentication ouvre Google et renvoie un jeton ID
+  F->>A: POST /api/auth/google (jeton ID, en-tête X-Bethanie)
+  A->>A: Firebase Admin vérifie signature, projet, fournisseur et e-mail vérifié
+  A->>D: retrouve le compte lié ou crée le profil local
   A->>D: création de la session (empreinte du jeton)
   A-->>F: cookie bethanie_session (HttpOnly) + profil
   F->>A: PUT /api/me/wishlist (fusion des favoris du visiteur)
@@ -714,11 +721,10 @@ Sans photo, une image neutre (`/images/placeholder-product.svg`) est utilisée.
 
 | Menace | Parade | Où |
 |---|---|---|
-| Vol de mot de passe en base | scrypt avec sel aléatoire, comparaison à temps constant | `auth.ts` |
-| Découverte des comptes existants | Même message et même temps de réponse si l’e-mail est inconnu | `auth.ts` |
+| Usurpation de compte | Firebase Admin vérifie la signature, l’audience, le fournisseur Google et l’e-mail vérifié ; compte lié par UID Firebase | `routes/auth.ts` |
 | Vol de session par script (XSS) | Jeton en cookie `HttpOnly`, seule son empreinte est stockée en base | `auth.ts` |
 | Requête forgée depuis un autre site (CSRF) | Cookie `SameSite=Lax` + en-tête `X-Bethanie` obligatoire sur toute modification | `auth.ts` |
-| Devinette de mots de passe | 20 tentatives par 15 minutes et par IP | `routes/auth.ts` |
+| Abus de connexion | 20 tentatives par 15 minutes et par IP | `routes/auth.ts` |
 | Accès aux données d’autrui | Contrôle du propriétaire sur chaque commande, produit, adresse, moyen de paiement | `routes/*.ts` |
 | Prix ou remise manipulés | Recalcul complet côté serveur depuis la base | `routes/orders.ts` |
 | Survente | Décrément conditionnel du stock dans une transaction | `routes/orders.ts` |
@@ -742,8 +748,11 @@ Sans photo, une image neutre (`/images/placeholder-product.svg`) est utilisée.
 | `DEMO_MODE` | `true` | `false` interdit au client de faire avancer lui-même sa commande |
 | `PAYMENT_PROVIDER` | `simulation` | Fournisseur de paiement ; toute autre valeur nécessite une implémentation dans `payments.ts` |
 | `API_URL` (Vite) | `http://localhost:4000` | Cible du proxy de développement |
+| `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` | — | Configuration publique de l’application Web Firebase, requise pour lancer Google côté navigateur |
+| `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | — | Identifiants secrets du compte de service Firebase Admin, requis par l’API ; ne jamais utiliser le préfixe `VITE_` |
 
-Le fichier `.env.local` hérité d’AI Studio (clé Gemini) n’est plus utilisé par l’application.
+Le fichier `.env.local` est chargé par le serveur en local et par Vite ; il est ignoré par Git. En production,
+définir ces variables dans l’environnement de la plateforme. Ne jamais publier la clé privée du compte de service.
 
 ---
 
@@ -751,7 +760,7 @@ Le fichier `.env.local` hérité d’AI Studio (clé Gemini) n’est plus utilis
 
 | Décision | Pourquoi | Quand la revoir |
 |---|---|---|
-| **Pas de Firebase pour l’instant** ; API et base hébergées par l’équipe | Demande du porteur de projet ; maîtrise des données et des coûts ; logique métier (stock, prix) côté serveur | Si l’équipe préfère un service géré (voir §13.2) |
+| **Firebase Authentication pour Google uniquement** ; API et données hébergées par l’équipe | OAuth géré, mais règles métier et données Béthanie restent sur le serveur et dans SQLite | Si l’équipe souhaite également migrer les données (voir §13.2) |
 | **SQLite intégré à Node** (`node:sqlite`) | Aucun serveur de base à administrer ; aucun module natif à compiler (les scripts d’installation npm sont bloqués sur le poste de développement) ; transactions fiables | Au-delà d’un seul serveur ou d’un fort volume d’écritures simultanées |
 | **Sessions en base + cookie HttpOnly** plutôt que JWT | Déconnexion réelle (révocation immédiate), jeton inaccessible au JavaScript | Si plusieurs services doivent valider les sessions |
 | **Règles métier dans un fichier partagé** | Une seule définition des frais, promos et statuts pour le site et le serveur | — |
@@ -783,7 +792,7 @@ Le fichier `.env.local` hérité d’AI Studio (clé Gemini) n’est plus utilis
 | L10 | Photos sur le disque local | À inclure dans les sauvegardes ; non partagées entre serveurs | Stockage objet (S3 ou équivalent) si plusieurs serveurs |
 | L11 | Aucun test automatisé dans le dépôt | Régressions possibles | Tests d’API (`node:test`) et parcours d’achat (Playwright) en intégration continue |
 | L12 | Paiement simulé | Aucun encaissement réel | Lot 3 : agrégateur + webhook signé ; supprimer `/orders/:id/pay` |
-| L13 | Connexion Google et par téléphone de la maquette non branchées | Le bouton Google est affiché désactivé (« Bientôt ») ; « Continuer avec téléphone » est remplacé par « Continuer avec e-mail », car un numéro n’identifie pas un compte de façon unique | Lot 3 : fournisseur OAuth Google ; connexion par code SMS (OTP) avec numéro unique et vérifié |
+| L13 | Connexion par téléphone de la maquette non branchée ; connexion Google dépend de la configuration de chaque environnement | Sans variables Firebase Web et compte de service, Google OAuth ne peut pas aboutir ; la connexion par code SMS n’est pas disponible | Configurer Firebase pour les environnements de recette et de production ; connexion SMS à cadrer |
 | L14 | Illustrations des catégories en 320 × 320 px (découpées dans la planche fournie) | Légèrement floues sur écran haute densité en grand format | Fournir chaque illustration séparément, en 640 px ou en SVG |
 | L15 | Photos des écrans de présentation et de l’encart « Espace vendeur » provisoires (marché, atelier) | Ne correspondent pas exactement à la maquette | Photos officielles de Béthanie (voir `public/images/CREDITS.md`) |
 | L16 | La cloche de l’accueil mène au suivi des commandes | Pas de centre de notifications | Lot 3 : notifications (CMD-09) |
@@ -805,13 +814,14 @@ Le fichier `.env.local` hérité d’AI Studio (clé Gemini) n’est plus utilis
 2. Si le trafic l’exige : PostgreSQL à la place de SQLite (les requêtes sont en SQL standard, regroupées dans
    `server/`), photos sur un stockage objet, plusieurs instances derrière un répartiteur de charge.
 
-### 13.2 Passage éventuel à Firebase
+### 13.2 Éventuelle migration des données vers Firebase
 
-Firebase a été écarté « pour l’instant ». Si ce choix change, la correspondance serait :
+Firebase Authentication est déjà utilisé uniquement pour Google. Si l’équipe décide de migrer les données
+applicatives vers Firebase, la correspondance pourrait être :
 
 | Aujourd’hui | Avec Firebase |
 |---|---|
-| `routes/auth.ts`, sessions | Firebase Authentication (e-mail, téléphone par SMS) |
+| `routes/auth.ts`, sessions | Firebase Authentication (déjà utilisé pour Google) |
 | Tables SQLite | Collections Firestore |
 | Création de commande, stock, avancement | Cloud Functions (cette logique doit rester côté serveur) |
 | `server/data/uploads/` | Cloud Storage |

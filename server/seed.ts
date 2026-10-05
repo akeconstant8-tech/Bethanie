@@ -3,9 +3,6 @@ import { hashPassword } from './auth.ts';
 import { db, transaction, type Row } from './db.ts';
 import { INITIAL_ORDERS, INITIAL_PRODUCTS, INITIAL_SHOPS, INITIAL_USER } from './seed-data.ts';
 
-export const DEMO_EMAIL = INITIAL_USER.email;
-export const DEMO_PASSWORD = 'bethanie123';
-
 const SAMPLE_REVIEWS = [
   { author: 'Adjoua K.', city: 'Cocody', rating: 5, at: '2026-09-28T10:00:00Z', text: 'Produit conforme à la description, très bonne qualité. Livraison rapide, le livreur était très courtois.' },
   { author: 'Ibrahim S.', city: 'Yopougon', rating: 4, at: '2026-09-21T15:30:00Z', text: 'Bon rapport qualité-prix. Le vendeur a répondu rapidement à mes questions sur WhatsApp.' },
@@ -44,7 +41,15 @@ export const seedIfEmpty = () => {
     const userId = crypto.randomUUID();
     db.prepare(
       'INSERT INTO users (id, name, email, phone, password_hash, avatar, location) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(userId, INITIAL_USER.name, INITIAL_USER.email, INITIAL_USER.phone, hashPassword(DEMO_PASSWORD), INITIAL_USER.avatar, INITIAL_USER.location);
+    ).run(
+      userId,
+      INITIAL_USER.name,
+      INITIAL_USER.email,
+      INITIAL_USER.phone,
+      hashPassword(crypto.randomBytes(32).toString('base64url')),
+      INITIAL_USER.avatar,
+      INITIAL_USER.location
+    );
 
     for (const a of INITIAL_USER.addresses) {
       db.prepare('INSERT INTO addresses (id, user_id, title, address, is_default) VALUES (?, ?, ?, ?, ?)').run(

@@ -1,6 +1,10 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
+const envFile = path.join(root, '.env.local');
+if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
+
 const dataDir = process.env.DATA_DIR ?? path.join(root, 'server', 'data');
 
 /** Configuration du serveur, surchargeable par variables d'environnement. */

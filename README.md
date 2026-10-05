@@ -8,10 +8,11 @@ de livraison.
 |---|---|
 | **Frontend** | React 19 · TypeScript · Vite 6 · Tailwind CSS 4 |
 | **Backend** | Node.js ≥ 22.13 · Express 5 · SQLite intégré à Node (`node:sqlite`) |
-| **Services externes** | Aucun pour les données (pas de Firebase pour l’instant) |
-| **État** | Lots 1 (frontend), 1 bis (refonte UX/UI) et 2 (backend) terminés · application installable (PWA) et hors ligne · paiements encore simulés |
+| **Services externes** | Firebase Authentication pour Google ; les données Béthanie restent dans SQLite |
+| **État** | Lots 1 (frontend), 1 bis (refonte UX/UI) et 2 (backend) terminés · Google OAuth intégré, configuration Firebase requise · paiements encore simulés |
 
 📄 **Documentation** : [Cahier des charges](docs/CAHIER_DES_CHARGES.md) · [Architecture](docs/ARCHITECTURE.md) ·
+[Assistant vendeur — spécification fonctionnelle](docs/AGENT_VENDEUR.md) ·
 [Maquette UX/UI](docs/maquette/maquette-ux-ui.jpg)
 
 ---
@@ -26,12 +27,13 @@ npm run dev
 ```
 
 Ouvrez **http://localhost:3000**. Au premier démarrage, la base `server/data/bethanie.db` est créée et remplie
-avec les données de démonstration (13 produits, 5 boutiques, 2 commandes).
+avec les données de démonstration (13 produits, 5 boutiques, 2 commandes). Pour utiliser la connexion Google,
+configurez Firebase comme décrit ci-dessous.
 
 | Pour tester | |
 |---|---|
-| Compte de démonstration | `pierre@gmail.com` / `bethanie123` |
 | Codes promo | `BETHANIE10` (−10 %, max. 10 000 FCFA) · `BIENVENUE` (−2 000 FCFA) · `LIVRAISON` (livraison offerte) |
+| Connexion | Google via Firebase Authentication ; les comptes créés sont conservés dans la base Béthanie |
 | Devenir vendeur | Connectez-vous puis ouvrez **Espace vendeur** |
 | Suivre une commande | Le bouton « Simuler l’étape suivante » (mode démo) fait avancer la livraison |
 
@@ -105,6 +107,22 @@ Les frais de livraison, les codes promo et les étapes de commande sont définis
 ---
 
 ## Configuration du serveur
+
+### Connexion Google (Firebase Authentication)
+
+Dans Firebase Console, activez **Authentication → Sign-in method → Google** et autorisez `localhost` ainsi que
+le domaine de production. Récupérez la configuration de l’application Web dans **Paramètres du projet → Général**
+puis ajoutez les variables `VITE_FIREBASE_*` du fichier `.env.example` à `.env.local`.
+
+Le serveur vérifie ensuite le jeton Firebase avec le SDK Admin. Créez une clé de compte de service dans
+**Paramètres du projet → Comptes de service** et renseignez `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` et
+`FIREBASE_PRIVATE_KEY` dans `.env.local`. La clé privée est un secret : ne la mettez jamais dans une variable
+`VITE_*`, dans Git ou dans le code du navigateur. Sur Vercel, définissez les mêmes variables dans
+**Project Settings → Environment Variables** ; redéployez après leur ajout.
+
+La connexion Google crée le profil local s’il n’existe pas, ou rattache l’identité Google au compte Béthanie
+existant ayant la même adresse vérifiée. Les sessions, profils, produits et commandes restent gérés par l’API
+Béthanie et SQLite ; Firebase n’héberge pas ces données.
 
 | Variable | Défaut | Rôle |
 |---|---|---|

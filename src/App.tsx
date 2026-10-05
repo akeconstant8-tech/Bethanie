@@ -421,9 +421,10 @@ const App: React.FC = () => {
     notify(t('toast.welcome', { name: next.name.split(' ')[0] }));
   };
 
-  const login = async (email: string, password: string) => welcome(await api.login(email, password));
-  const register = async (data: { name: string; email: string; phone: string; password: string }) =>
-    welcome(await api.register(data));
+  const googleAuth = async () => {
+    const { signInWithGoogle } = await import('./api/firebaseAuth');
+    welcome(await api.googleSignIn(await signInWithGoogle()));
+  };
 
   const logout = async () => {
     await api.logout().catch(() => undefined);
@@ -683,7 +684,7 @@ const App: React.FC = () => {
       if (!sessionReady) return <PageSkeleton />;
       if (!me) {
         return (
-          <AuthScreen reason={t(`auth.reason.${screen}` as TranslationKey)} onLogin={login} onRegister={register} />
+          <AuthScreen reason={t(`auth.reason.${screen}` as TranslationKey)} onGoogleAuth={googleAuth} />
         );
       }
     }
@@ -897,7 +898,7 @@ const App: React.FC = () => {
       <ConnectionStatus />
       <IosInstallSheet open={iosHelpOpen} onClose={() => setIosHelpOpen(false)} />
       {showOnboarding && (
-        <Onboarding isLoggedIn={Boolean(me)} onLogin={login} onRegister={register} onFinish={finishOnboarding} />
+        <Onboarding isLoggedIn={Boolean(me)} onGoogleAuth={googleAuth} onFinish={finishOnboarding} />
       )}
     </div>
   );

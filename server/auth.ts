@@ -22,7 +22,7 @@ declare global {
 
 export const SESSION_COOKIE = 'bethanie_session';
 
-/* ---------- Mots de passe (scrypt, sel aléatoire) ---------- */
+/* Compatibilité avec la colonne password_hash du schéma SQLite existant. */
 
 const SCRYPT_KEYLEN = 64;
 
@@ -31,20 +31,6 @@ export const hashPassword = (password: string) => {
   const hash = crypto.scryptSync(password, salt, SCRYPT_KEYLEN);
   return `scrypt$${salt.toString('base64')}$${hash.toString('base64')}`;
 };
-
-export const verifyPassword = (password: string, stored: string) => {
-  const [scheme, saltB64, hashB64] = stored.split('$');
-  if (scheme !== 'scrypt' || !saltB64 || !hashB64) return false;
-  const expected = Buffer.from(hashB64, 'base64');
-  const actual = crypto.scryptSync(password, Buffer.from(saltB64, 'base64'), expected.length);
-  return crypto.timingSafeEqual(actual, expected);
-};
-
-// Empreinte factice : on calcule toujours un scrypt, même si l'e-mail est inconnu,
-// pour ne pas révéler par le temps de réponse quels comptes existent.
-const DUMMY_HASH = hashPassword(crypto.randomBytes(12).toString('hex'));
-export const verifyPasswordOrDummy = (password: string, stored: string | undefined) =>
-  verifyPassword(password, stored ?? DUMMY_HASH) && stored !== undefined;
 
 /* ---------- Sessions ---------- */
 

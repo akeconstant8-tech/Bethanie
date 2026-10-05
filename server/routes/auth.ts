@@ -2,8 +2,10 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { createSession, destroySession, hashPassword, verifyPasswordOrDummy } from '../auth.ts';
-import { db, type Row } from '../db.ts';
+import { cert, getApps, initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { createSession, destroySession, hashPassword } from '../auth.ts';
+import { db, transaction, type Row } from '../db.ts';
 import { HttpError, conflict, parse } from '../http.ts';
 import { loadMe } from '../serializers.ts';
 
@@ -19,50 +21,85 @@ const limiter = rateLimit({
 });
 
 const email = z.string().trim().toLowerCase().email('Adresse e-mail invalide.').max(120);
+const GoogleSchema = z.object({ idToken: z.string().min(100).max(10_000) });
 
-const RegisterSchema = z.object({
-  name: z.string().trim().min(2, 'Indiquez votre nom complet.').max(80, 'Nom trop long.'),
-  email,
-  phone: z
-    .string()
-    .trim()
-    .max(30)
-    .refine((v) => v.replace(/\D/g, '').length >= 8, 'Numéro de téléphone invalide.'),
-  password: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères.').max(200),
-});
-
-const LoginSchema = z.object({
-  email,
-  password: z.string().min(1, 'Indiquez votre mot de passe.').max(200),
-});
-
-authRouter.post('/register', limiter, (req, res) => {
-  const data = parse(RegisterSchema, req.body);
-  if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(data.email)) {
-    throw conflict('Un compte existe déjà avec cette adresse e-mail.');
+const getFirebaseAuth = () => {
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  if (!projectId || !clientEmail || !privateKey) {
+    throw new HttpError(503, 'La connexion Google n’est pas configurée sur le serveur.');
   }
-  const id = crypto.randomUUID();
-  db.prepare('INSERT INTO users (id, name, email, phone, password_hash, location) VALUES (?, ?, ?, ?, ?, ?)').run(
-    id,
-    data.name,
-    data.email,
-    data.phone,
-    hashPassword(data.password),
-    "Abidjan, Côte d'Ivoire"
-  );
-  createSession(res, id);
-  res.status(201).json({ user: loadMe(id) });
-});
 
-authRouter.post('/login', limiter, (req, res) => {
-  const data = parse(LoginSchema, req.body);
-  const row = db.prepare('SELECT id, password_hash FROM users WHERE email = ?').get(data.email) as Row | undefined;
-  if (!verifyPasswordOrDummy(data.password, row ? String(row.password_hash) : undefined)) {
-    throw new HttpError(401, 'E-mail ou mot de passe incorrect.');
+  const app =
+    getApps().find((candidate) => candidate.name === 'bethanie-auth') ??
+    initializeApp(
+      {
+        credential: cert({ projectId, clientEmail, privateKey: privateKey.replace(/\\n/g, '\n') }),
+        projectId,
+      },
+      'bethanie-auth'
+    );
+  return getAuth(app);
+};
+
+authRouter.post('/google', limiter, async (req, res) => {
+  const { idToken } = parse(GoogleSchema, req.body);
+  const decoded = await getFirebaseAuth().verifyIdToken(idToken, true).catch((error: unknown) => {
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
+    if (
+      ['auth/argument-error', 'auth/invalid-id-token', 'auth/id-token-expired', 'auth/id-token-revoked', 'auth/user-disabled'].includes(
+        code
+      )
+    ) {
+      throw new HttpError(401, 'La session Google a expiré. Reconnectez-vous.');
+    }
+    throw error;
+  });
+  if (
+    decoded.firebase?.sign_in_provider !== 'google.com' ||
+    decoded.email_verified !== true ||
+    typeof decoded.email !== 'string'
+  ) {
+    throw new HttpError(401, 'Connectez-vous avec une adresse Google vérifiée.');
   }
-  const id = String(row!.id);
-  createSession(res, id);
-  res.json({ user: loadMe(id) });
+
+  const normalizedEmail = email.parse(decoded.email);
+  const userId = transaction(() => {
+    const linkedUser = db.prepare('SELECT id FROM users WHERE firebase_uid = ?').get(decoded.uid) as Row | undefined;
+    if (linkedUser) return String(linkedUser.id);
+
+    const existingUser = db
+      .prepare('SELECT id, firebase_uid FROM users WHERE email = ?')
+      .get(normalizedEmail) as Row | undefined;
+    if (existingUser) {
+      if (existingUser.firebase_uid && existingUser.firebase_uid !== decoded.uid) {
+        throw conflict('Cette adresse e-mail est déjà liée à un autre compte Google.');
+      }
+      db.prepare('UPDATE users SET firebase_uid = ? WHERE id = ?').run(decoded.uid, String(existingUser.id));
+      return String(existingUser.id);
+    }
+
+    const id = crypto.randomUUID();
+    const displayName = typeof decoded.name === 'string' ? decoded.name.trim().slice(0, 80) : '';
+    const name = displayName || normalizedEmail.split('@')[0].slice(0, 80);
+    db.prepare(
+      `INSERT INTO users (id, name, email, phone, password_hash, location, firebase_uid)
+       VALUES (?, ?, ?, '', ?, ?, ?)`
+    ).run(
+      id,
+      name,
+      normalizedEmail,
+      hashPassword(crypto.randomBytes(32).toString('base64url')),
+      "Abidjan, Côte d'Ivoire",
+      decoded.uid
+    );
+    return id;
+  });
+
+  createSession(res, userId);
+  res.json({ user: loadMe(userId) });
 });
 
 authRouter.post('/logout', (req, res) => {

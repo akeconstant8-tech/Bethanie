@@ -1,7 +1,7 @@
 # Cahier des charges — Béthanie
 
 > Marketplace africaine « Achetez • Vendez • Bénissez »
-> Version 1.5 — 3 octobre 2026 — document de travail, à valider par le porteur de projet
+> Version 1.7 — 5 octobre 2026 — document de travail, à valider par le porteur de projet
 
 | Version | Date | Changements |
 |---|---|---|
@@ -11,8 +11,10 @@
 | 1.3 | 3 octobre 2026 | Application installable et hors ligne (4.11, PWA-01 à PWA-10) ; motion design (4.12, MOT-01 à MOT-10) ; typographie Poppins et Cinzel (6.6) ; performance (PERF-04 à PERF-07) ; lot 6 en partie réalisé ; recette R19 à R26 |
 | 1.4 | 3 octobre 2026 | Section « Boutiques certifiées » retirée de l’accueil, ainsi que le lien « Boutiques » de l’en-tête (CAT-01, RG-07) |
 | 1.5 | 3 octobre 2026 | Motion design renforcé (MOT-11 à MOT-16) ; réglage « Effets d’animation » de Windows expliqué ; recette R27 à R31 |
+| 1.6 | 5 octobre 2026 | Définition fonctionnelle d’un assistant vendeur et de ses compétences (AGV-01 à AGV-07) ; intégration technique hors périmètre de cette version |
+| 1.7 | 5 octobre 2026 | Connexion et création de compte Google via Firebase Authentication ; retrait du parcours e-mail/mot de passe ; données métier conservées dans SQLite |
 
-**Légende des statuts** : ✅ réalisé · 🟡 partiel ou simulé · ⬜ à faire
+**Légende des statuts** : ✅ réalisé · 🟡 partiel ou dépend d’une configuration externe · ⬜ à faire
 **Priorités** : **P1** indispensable au lancement · **P2** important · **P3** souhaitable
 
 Les points marqués **[À valider]** sont des hypothèses reprises de l’interface actuelle ; ils doivent être
@@ -75,7 +77,7 @@ le site doit donc être pensé d’abord pour le mobile et pour ces moyens de pa
   [docs/maquette/maquette-ux-ui.jpg](maquette/maquette-ux-ui.jpg).
 - Catalogue multi-vendeurs, panier, commande, paiement (simulé), suivi de commande.
 - Comptes clients, espace vendeur, avis clients.
-- API et base de données hébergées par l’équipe (sans service tiers type Firebase).
+- API et base de données hébergées par l’équipe ; Firebase Authentication utilisé uniquement pour la connexion Google.
 
 ### 2.2 Hors périmètre à ce stade
 
@@ -83,6 +85,7 @@ le site doit donc être pensé d’abord pour le mobile et pour ces moyens de pa
 - Paiements réels (prévus au lot 3), reversements aux vendeurs, facturation.
 - Espace d’administration, application livreur, points relais réels.
 - Autres langues que le français et l’anglais ; traduction des fiches produit saisies par les vendeurs ; multi-devise (FCFA uniquement).
+- Assistant vendeur et compétences assistées : périmètre fonctionnel défini au §4.13, mais non inclus dans la version actuelle tant que les choix de réalisation n’ont pas été cadrés.
 
 ---
 
@@ -130,17 +133,17 @@ le site doit donc être pensé d’abord pour le mobile et pour ces moyens de pa
 
 | ID | Exigence | Priorité | Statut |
 |---|---|---|---|
-| CPT-01 | Inscription : nom, e-mail, téléphone, mot de passe (8 caractères minimum) | P1 | ✅ |
-| CPT-02 | Connexion, déconnexion ; session valable 30 jours | P1 | ✅ |
+| CPT-01 | Création de compte avec Google : nom et e-mail vérifiés ; téléphone complété ultérieurement dans le profil | P1 | ✅ |
+| CPT-02 | Connexion Google, déconnexion ; session Béthanie valable 30 jours | P1 | ✅ |
 | CPT-03 | Modification du profil (nom, e-mail, téléphone, ville) | P1 | ✅ |
 | CPT-04 | Carnet d’adresses (20 maximum, une par défaut) | P1 | ✅ |
 | CPT-05 | Moyens de paiement enregistrés ; pour une carte, seuls les 4 derniers chiffres sont conservés | P2 | ✅ |
 | CPT-06 | Favoris enregistrés sur le compte ; les favoris choisis avant connexion sont fusionnés | P2 | ✅ |
-| CPT-07 | Mot de passe oublié (lien ou code par e-mail / SMS) | P1 | ⬜ |
+| CPT-07 | Récupération de compte gérée par Google ; aucun mot de passe Béthanie à réinitialiser | P1 | ✅ |
 | CPT-08 | Vérification du numéro de téléphone par code (OTP) | P2 | ⬜ |
 | CPT-09 | Suppression du compte et export des données personnelles | P2 | ⬜ |
-| CPT-10 | « Continuer avec Google » (maquette) | P2 | ⬜ bouton affiché désactivé, mention « Bientôt » |
-| CPT-11 | « Continuer avec téléphone » : connexion par code SMS (maquette) ; suppose un numéro unique et vérifié par compte (CPT-08) | P2 | ⬜ remplacé pour l’instant par « Continuer avec e-mail » |
+| CPT-10 | « Continuer avec Google » et création de compte Google ; jeton vérifié par le serveur Firebase Admin, session Béthanie conservée | P1 | 🟡 code intégré, configuration Firebase requise dans chaque environnement |
+| CPT-11 | « Continuer avec téléphone » : connexion par code SMS ; suppose un numéro unique et vérifié par compte (CPT-08) | P2 | ⬜ non implémenté |
 
 ### 4.4 Commande et paiement (CMD)
 
@@ -211,7 +214,7 @@ un pied de page.
 | UX-01 | Écran de démarrage : fond vert, logo, slogan, phrase de présentation, motif africain | 1 | P2 | ✅ |
 | UX-02 | Deux écrans de présentation (« Découvrez des produits uniques », « Vendez et développez votre activité ») avec indicateur d’étape, bouton « Suivant » et lien « Passer » | 2, 3 | P2 | ✅ photos provisoires |
 | UX-03 | Accueil de première visite affiché une seule fois, sur mobile, uniquement quand on arrive par l’accueil (un lien partagé s’ouvre directement) | 1 à 4 | P2 | ✅ |
-| UX-04 | Écran « Connectez-vous » : Google, téléphone, « Créer un compte », mentions légales ; « Continuer sans compte » pour visiter librement | 4 | P1 | 🟡 Google et téléphone non branchés (CPT-10, CPT-11) |
+| UX-04 | Écran de connexion et création de compte via Google ; mentions légales ; « Continuer sans compte » pour visiter librement | 4 | P1 | 🟡 interface et API intégrées, configuration Firebase requise |
 | UX-05 | Barre d’onglets mobile : Accueil, Catégories, Panier (nombre d’articles), Commandes, Profil | 5, 6, 8, 11 | P1 | ✅ |
 | UX-06 | Accueil : ville de livraison et cloche dans un bandeau vert, recherche, bannière « Des produits locaux pour un avenir meilleur », grille de 8 catégories illustrées, produits populaires | 5 | P1 | ✅ la cloche mène au suivi des commandes |
 | UX-07 | Écran Catégories en grille de cartes illustrées, avec sous-titre | 6 | P1 | ✅ |
@@ -280,6 +283,23 @@ toutes désactivées quand le téléphone ou l’ordinateur demande de réduire 
 > **Réduire les animations** : sous Windows, ce réglage est activé quand **Paramètres › Accessibilité › Effets
 > visuels › Effets d’animation** est désactivé. Le navigateur le transmet au site, qui coupe alors toutes les
 > animations (R24). Pour voir le motion design sur un PC, ce réglage doit être activé.
+
+### 4.13 Assistant vendeur et compétences (AGV)
+
+Cette fonctionnalité est **définie fonctionnellement, mais pas encore implémentée**. Elle propose un assistant
+unique dans l’espace vendeur, doté de compétences spécialisées. Le détail des parcours, limites et critères de
+recette figure dans [la spécification fonctionnelle de l’assistant vendeur](AGENT_VENDEUR.md). Aucun fournisseur
+ni choix d’intégration technique n’est défini à ce stade.
+
+| ID | Exigence | Priorité | Statut |
+|---|---|---|---|
+| AGV-01 | L’assistant aide le vendeur à préparer et gérer les tâches de sa propre boutique ; il ne remplace pas le vendeur et n’agit jamais sans validation explicite | P1 | ⬜ |
+| AGV-02 | Compétence « Rédiger une fiche produit » : proposer un brouillon structuré à partir des informations fournies, sans inventer de caractéristiques ; le vendeur relit et publie lui-même | P1 | ⬜ |
+| AGV-03 | Compétence « Suivre le stock » : expliquer les niveaux de stock et repérer les produits signalés comme faibles ; toute modification reste soumise à confirmation | P1 | ⬜ |
+| AGV-04 | Compétence « Traiter les commandes » : résumer les commandes de la boutique, expliquer leur statut et guider vers l’étape disponible ; toute avancée de statut reste confirmée par le vendeur et soumise aux règles existantes | P1 | ⬜ |
+| AGV-05 | Compétence « Comprendre l’activité » : résumer les indicateurs vendeur disponibles, sans présenter comme certaines des tendances que les données ne permettent pas d’établir | P2 | ⬜ |
+| AGV-06 | Compétence « Être guidé dans l’espace vendeur » : expliquer les fonctions existantes et orienter vers le bon écran ; signaler les sujets non couverts plutôt que d’inventer une règle | P2 | ⬜ |
+| AGV-07 | L’assistant répond en français et en anglais, respecte l’accès du vendeur à ses seules données et n’exécute aucune action irréversible sans confirmation | P1 | ⬜ |
 
 ---
 
@@ -453,7 +473,7 @@ son propre statut et son propre livreur.
 | Backend | Node.js 22.13+ (testé avec 26), Express 5, validation zod |
 | Base de données | SQLite intégré à Node (`node:sqlite`), un fichier `server/data/bethanie.db` |
 | Photos | Fichiers sur le disque du serveur (`server/data/uploads/`) |
-| Services tiers | Aucun (pas de Firebase pour l’instant) ; polices Poppins et Cinzel et icônes Font Awesome hébergées par le site |
+| Services tiers | Firebase Authentication uniquement pour Google ; comptes applicatifs et données Béthanie restent dans SQLite ; polices et icônes hébergées par le site |
 | Hébergement | À définir (voir section 10) ; un seul processus sert le site et l’API |
 
 Le détail technique est dans [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -478,10 +498,11 @@ Le détail technique est dans [ARCHITECTURE.md](ARCHITECTURE.md).
 | **1. Frontend** | Les 8 écrans, parcours d’achat et espace vendeur avec données de démonstration | ✅ terminé |
 | **2. Backend** | API, base de données, comptes, commandes, stock, avis, photos, sécurité | ✅ terminé |
 | **1 bis. Refonte UX/UI** | Maquette de 13 écrans (section 4.9) : présentation mobile, accueil de première visite, écran Catégories illustré, espace vendeur à onglets et statistiques, 3 photos par produit | ✅ terminé (restent CPT-10, CPT-11, VEN-10) |
-| **3. Paiements et notifications** | Agrégateur Mobile Money / carte, webhook, échecs et remises en stock, mot de passe oublié, OTP, SMS / WhatsApp | ⬜ |
+| **3. Paiements et notifications** | Agrégateur Mobile Money / carte, webhook, échecs et remises en stock, OTP téléphonique si retenu, SMS / WhatsApp | ⬜ |
 | **4. Opérations** | Espace administrateur, vérification des boutiques, modération, litiges, sous-commandes par vendeur, reversements, codes promo administrables | ⬜ |
 | **5. Mise en production** | Hébergement, nom de domaine, HTTPS, sauvegardes, supervision, tests automatisés, mentions légales et CGV | ⬜ |
 | **6. Mobile** | Application installable (PWA) puis, si besoin, applications Android / iOS | 🟡 PWA réalisée (4.11) ; applications natives à décider |
+| **7. Assistant vendeur** | Assistant unique et compétences AGV-01 à AGV-07 ; intégration à cadrer après validation de la spécification fonctionnelle | ⬜ |
 
 Les durées de chaque lot sont à estimer une fois les décisions de la section 10 prises.
 
@@ -498,7 +519,7 @@ Les durées de chaque lot sont à estimer une fois les décisions de la section 
 | D5 | Politique de retour et de remboursement (7 jours annoncés) | CMD-07, CGV |
 | D6 | Critères de vérification des vendeurs (pièces demandées, contrôle) | ADM-01 |
 | D7 | Contenus juridiques : CGU, CGV, politique de confidentialité, mentions légales | Lot 5 |
-| D8 | Connexion Google et par téléphone : faut-il les deux ? quel fournisseur de SMS pour les codes ? | CPT-10, CPT-11, lot 3 |
+| D8 | Décision : Google uniquement pour la connexion et la création de compte de cette version ; la connexion par téléphone/SMS est reportée | CPT-10 réalisé sous réserve de configuration, CPT-11 reporté |
 | D9 | Photos et illustrations définitives : droits d’utilisation des illustrations de catégories et de la bannière fournies, photos officielles pour l’accueil et les écrans de présentation, versions haute définition | UX-02, UX-06, UX-07 |
 | D10 | Contenu de l’entrée « Notifications » du profil (commandes, promotions, messages des vendeurs) et canal (SMS, WhatsApp, notification du téléphone) | UX-12, CMD-09 |
 | D11 | Numéro de contact officiel : le numéro WhatsApp a été retiré de l’interface ; faut-il un numéro WhatsApp Business, et le téléphone du pied de page est-il le bon ? | UX-12, pied de page |

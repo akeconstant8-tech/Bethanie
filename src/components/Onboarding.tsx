@@ -7,8 +7,7 @@ import { LanguageSwitcher } from './LanguageSwitcher';
 
 interface OnboardingProps {
   isLoggedIn: boolean;
-  onLogin: (email: string, password: string) => Promise<void>;
-  onRegister: (data: { name: string; email: string; phone: string; password: string }) => Promise<void>;
+  onGoogleAuth: () => Promise<void>;
   onFinish: () => void;
 }
 
@@ -20,7 +19,7 @@ const SLIDES: { image: string; title: TranslationKey; text: TranslationKey }[] =
 type Stage = 'splash' | 'slides' | 'auth';
 
 /** Accueil de la première visite sur mobile : écran de démarrage, deux écrans de présentation, connexion. */
-export const Onboarding: React.FC<OnboardingProps> = ({ isLoggedIn, onLogin, onRegister, onFinish }) => {
+export const Onboarding: React.FC<OnboardingProps> = ({ isLoggedIn, onGoogleAuth, onFinish }) => {
   const { t } = useI18n();
   const [stage, setStage] = useState<Stage>('splash');
   const [slide, setSlide] = useState(0);
@@ -99,12 +98,8 @@ export const Onboarding: React.FC<OnboardingProps> = ({ isLoggedIn, onLogin, onR
       <div className="fixed inset-0 z-90 bg-white overflow-y-auto">
         <AuthScreen
           onSkip={onFinish}
-          onLogin={async (email, password) => {
-            await onLogin(email, password);
-            onFinish();
-          }}
-          onRegister={async (data) => {
-            await onRegister(data);
+          onGoogleAuth={async () => {
+            await onGoogleAuth();
             onFinish();
           }}
         />
