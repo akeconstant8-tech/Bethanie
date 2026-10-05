@@ -125,6 +125,10 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
   const canAdvance = demoMode && !paymentPending && nextStatus(order.status) !== null;
   const delivered = order.status === 'livrée';
   const cancelled = order.status === 'annulée';
+  const paymentFailed = cancelled && order.cancelReason === 'paiement_echoue';
+  const cancelledMessageKey = (
+    paymentFailed ? 'tracking.msg.annulée.paiement_echoue' : order.cancelReason === 'paiement_expire' ? 'tracking.msg.annulée.paiement_expire' : 'tracking.msg.annulée'
+  ) as TranslationKey;
 
   return (
     <div className="pb-6 lg:pb-12">
@@ -266,10 +270,24 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
                   </button>
                 </div>
               ) : (
-                <p className={`flex gap-3 rounded-2xl p-4 text-sm ${cancelled ? 'bg-slate-100 text-slate-700' : 'bg-brand-50 text-brand-900'}`}>
-                  <i className={`fa-solid ${cancelled ? 'fa-ban' : delivered ? 'fa-circle-check' : 'fa-circle-info'} mt-0.5`}></i>
-                  <span>{t(`tracking.msg.${order.status}` as TranslationKey)}</span>
+                <p
+                  className={`flex gap-3 rounded-2xl p-4 text-sm ${
+                    paymentFailed ? 'bg-red-50 text-red-800' : cancelled ? 'bg-slate-100 text-slate-700' : 'bg-brand-50 text-brand-900'
+                  }`}
+                >
+                  <i
+                    className={`fa-solid ${paymentFailed ? 'fa-circle-xmark' : cancelled ? 'fa-ban' : delivered ? 'fa-circle-check' : 'fa-circle-info'} mt-0.5`}
+                  ></i>
+                  <span>{cancelled ? t(cancelledMessageKey) : t(`tracking.msg.${order.status}` as TranslationKey)}</span>
                 </p>
+              )}
+              {paymentFailed && (
+                <button
+                  onClick={() => onNavigate('catalog', { category: 'all' })}
+                  className={`${btnPrimary} w-full h-11 mt-3 text-sm`}
+                >
+                  {t('tracking.retryOrder')}
+                </button>
               )}
 
               {order.deliveryDriver && !delivered && (

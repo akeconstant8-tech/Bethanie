@@ -155,6 +155,8 @@ const toOrder = (row: Row, items: Row[], events: Row[], forCustomer: boolean): O
     paymentStatus: row.payment_status as PaymentStatus,
     // Page de paiement GeniusPay à reprendre : seulement pour le client, et tant que le paiement est attendu.
     paymentUrl: forCustomer && row.payment_status === 'en_attente' && row.payment_url ? String(row.payment_url) : undefined,
+    // Pourquoi une commande a été annulée (pour afficher « Paiement échoué » plutôt qu'un message d'expiration).
+    cancelReason: status === 'annulée' && row.cancel_reason ? (String(row.cancel_reason) as Order['cancelReason']) : undefined,
     items: items.map((item) => ({
       product: { ...(JSON.parse(String(item.product_snapshot)) as Product), price: Number(item.unit_price) },
       quantity: Number(item.quantity),

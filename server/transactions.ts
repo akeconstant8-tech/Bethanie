@@ -196,11 +196,14 @@ export const acquireCommission = (orderId: string, how: 'en ligne' | 'à la livr
  * Annule une commande non payée : statut « annulée », paiement « échoué », stock remis en vente, commission annulée,
  * événement inscrit au journal ; tout ou rien. Sans effet si la commande a été payée entre-temps.
  */
-export const cancelOrder = (orderId: string, raison: string, extra: Record<string, unknown> = {}) =>
+/** Catégorie affichée au client (voir tracking.msg.annulée.* côté site) ; « autre » par défaut. */
+export type CancelReason = 'paiement_echoue' | 'paiement_expire' | 'autre';
+
+export const cancelOrder = (orderId: string, raison: string, extra: Record<string, unknown> = {}, reason: CancelReason = 'autre') =>
   guarded(() => {
     const order = db.prepare('SELECT status, payment_status FROM orders WHERE id = ?').get(orderId) as Row | undefined;
     if (!order || order.payment_status !== 'en_attente' || order.status !== 'confirmée') return false;
-    db.prepare(`UPDATE orders SET status = 'annulée', payment_status = 'échoué' WHERE id = ?`).run(orderId);
+    db.prepare(`UPDATE orders SET status = 'annulée', payment_status = 'échoué', cancel_reason = ? WHERE id = ?`).run(reason, orderId);
     db.prepare(`INSERT INTO order_events (order_id, status) VALUES (?, 'annulée')`).run(orderId);
     const items = db.prepare('SELECT product_id, quantity FROM order_items WHERE order_id = ?').all(orderId) as Row[];
     for (const item of items) {
@@ -235,7 +238,7 @@ export const cancelUnpaidOrders = (now = Date.now()) => {
   let cancelled = 0;
   for (const orderId of expiredUnpaid(now, false)) {
     try {
-      if (cancelOrder(orderId, 'paiement non reçu sous 2 heures')) cancelled += 1;
+      if (cancelOrder(orderId, 'paiement non reçu sous 2 heures', {}, 'paiement_expire')) cancelled += 1;
     } catch (error) {
       if (!(error instanceof TransactionRefused)) throw error;
     }

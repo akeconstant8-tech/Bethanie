@@ -173,7 +173,14 @@ export const reconcileOrderPayment = async (orderId: string, options: { cancelIf
   }
 
   if (order.payment_status === 'en_attente' && order.status === 'confirmée' && (FAILED.has(status) || options.cancelIfPending)) {
-    cancelOrder(orderId, FAILED.has(status) ? `paiement ${status} chez GeniusPay` : 'paiement non reçu sous 2 heures', { reference });
+    // Distingue un refus explicite de GeniusPay (le client a vu l'échec sur leur page) d'une simple expiration :
+    // le suivi de commande affiche un message différent dans chaque cas.
+    cancelOrder(
+      orderId,
+      FAILED.has(status) ? `paiement ${status} chez GeniusPay` : 'paiement non reçu sous 2 heures',
+      { reference },
+      FAILED.has(status) ? 'paiement_echoue' : 'paiement_expire'
+    );
     return 'annulée';
   }
   return status;

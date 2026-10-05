@@ -77,6 +77,8 @@ export interface Order {
   paymentStatus?: PaymentStatus;
   /** Page de paiement GeniusPay (paiement en ligne en attente) : y envoyer le client pour payer. */
   paymentUrl?: string;
+  /** Pourquoi une commande « annulée » l'a été : paiement refusé, expiré (2 h), ou autre. */
+  cancelReason?: 'paiement_echoue' | 'paiement_expire' | 'autre';
   contactPhone?: string;
   deliveryMethod?: string;
   createdAt?: string;

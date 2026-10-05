@@ -181,6 +181,11 @@ if (!orderColumns.some((column) => column.name === 'payment_reference')) {
   db.exec('ALTER TABLE orders ADD COLUMN payment_url TEXT');
 }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_payment_reference ON orders(payment_reference)');
+// Catégorie d'annulation : distingue un refus explicite de GeniusPay (message « Paiement échoué ») d'une
+// simple expiration à 2 h, pour que le suivi affiche le bon message (voir cancelOrder, transactions.ts).
+if (!orderColumns.some((column) => column.name === 'cancel_reason')) {
+  db.exec('ALTER TABLE orders ADD COLUMN cancel_reason TEXT');
+}
 
 /* Contrôle des transactions et commission de Béthanie (RG-09, voir transactions.ts). */
 db.exec(`
