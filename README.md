@@ -48,6 +48,7 @@ configurez Firebase comme décrit ci-dessous.
 | `npm run build` | Vérifie les types (site + serveur) et compile le site dans `dist/` |
 | `npm start` | Production : Express sert l’API **et** le site compilé sur le port 4000 |
 | `npm run typecheck` | Vérification TypeScript seule |
+| `npm run controle` | Contrôle complet des transactions : commission de 5 % perçue et à percevoir, écarts, intégrité du journal (code de sortie 1 en cas d’écart) |
 | `npm run db:reset` | Supprime la base locale (**serveur arrêté**) ; elle est recréée au démarrage suivant |
 
 ---
@@ -72,7 +73,7 @@ gauche), bannière animée, photo qui vole jusqu’au panier, cartes inclinées 
 apparitions en cascade, micro-interactions, squelettes de chargement. Tout est coupé si l’appareil demande de
 réduire les animations : sous Windows, c’est le cas quand **Paramètres › Accessibilité › Effets visuels › Effets
 d’animation** est désactivé. Polices **Poppins** (interface) et **Cinzel** (logo), hébergées avec les icônes par
-le site lui-même.
+le site lui-même. Le **Profil → Animations** permet de choisir : Automatique (réglage de l’appareil), Toujours activées, Réduites.
 
 **Clients**
 - Écran Catégories illustré ; catalogue avec recherche, filtres (catégorie, prix, marque, note) et tri ; pages boutiques.
@@ -110,19 +111,36 @@ Les frais de livraison, les codes promo et les étapes de commande sont définis
 
 ### Connexion Google (Firebase Authentication)
 
-Dans Firebase Console, activez **Authentication → Sign-in method → Google** et autorisez `localhost` ainsi que
-le domaine de production. Récupérez la configuration de l’application Web dans **Paramètres du projet → Général**
-puis ajoutez les variables `VITE_FIREBASE_*` du fichier `.env.example` à `.env.local`.
+1. Firebase Console → **Authentication → Sign-in method → Google** : activer.
+2. **Authentication → Paramètres → Domaines autorisés** : `localhost` (déjà présent) et `bethanie.vercel.app`.
+3. **Paramètres du projet → Général → Vos applications → application Web** : copier `apiKey`, `authDomain`,
+   `projectId`, `appId` dans les variables `VITE_FIREBASE_*` (voir `.env.example`) : dans `.env.local` en local, dans
+   **Vercel → Project Settings → Environment Variables** en ligne.
+4. Serveur : l’identifiant du projet suffit (`FIREBASE_PROJECT_ID`, ou à défaut `VITE_FIREBASE_PROJECT_ID`). Facultatif
+   mais conseillé en production : le compte de service (**Paramètres du projet → Comptes de service → Générer une
+   nouvelle clé privée**) dans `FIREBASE_CLIENT_EMAIL` et `FIREBASE_PRIVATE_KEY` — secrets, jamais de préfixe `VITE_`.
+5. Redémarrer l’API en local (elle ne relit `.env.local` qu’au démarrage) ; **redéployer** sur Vercel. Sur Vercel,
+   l’identifiant du projet est repris automatiquement de `VITE_FIREBASE_PROJECT_ID` à la construction du serveur.
 
-Le serveur vérifie ensuite le jeton Firebase avec le SDK Admin. Créez une clé de compte de service dans
-**Paramètres du projet → Comptes de service** et renseignez `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` et
-`FIREBASE_PRIVATE_KEY` dans `.env.local`. La clé privée est un secret : ne la mettez jamais dans une variable
-`VITE_*`, dans Git ou dans le code du navigateur. Sur Vercel, définissez les mêmes variables dans
-**Project Settings → Environment Variables** ; redéployez après leur ajout.
+Les journaux du serveur indiquent au démarrage l’état de la connexion Google et nomment la variable manquante
+(`[api] Connexion Google …`). La connexion Google crée le compte Béthanie s’il n’existe pas, ou le rattache au compte
+existant ayant la même adresse vérifiée ; sessions, profils, produits et commandes restent dans SQLite.
 
-La connexion Google crée le profil local s’il n’existe pas, ou rattache l’identité Google au compte Béthanie
-existant ayant la même adresse vérifiée. Les sessions, profils, produits et commandes restent gérés par l’API
-Béthanie et SQLite ; Firebase n’héberge pas ces données.
+### Commission de 5 % et contrôle des transactions
+
+À chaque commande, le serveur calcule la commission de Béthanie (5 % du prix des articles de chaque boutique) et la
+part du vendeur, contrôle tous les montants (une transaction faussée est refusée) et inscrit l’événement dans un
+journal scellé. La commission devient « perçue » au paiement. Pour la consulter : définir `ADMIN_EMAILS` (votre
+adresse Google) puis ouvrir **Profil → Commissions Béthanie**, ou lancer `npm run controle`. En production, définir
+aussi `TRANSACTIONS_SECRET` (et, si des transactions existent déjà, lancer une fois `npm run controle -- --sceller`). Audit complet : [docs/AUDIT_SECURITE.md](docs/AUDIT_SECURITE.md).
+
+### Assistant vendeur (IA)
+
+Dans l’espace vendeur, le bouton **Assistant** ouvre une conversation avec Claude (Anthropic) qui aide à rédiger une
+fiche, suivre le stock, traiter les commandes et comprendre l’activité. L’assistant **propose**, le vendeur
+**confirme** chaque changement. Pour l’activer : créer une clé sur https://console.anthropic.com et la placer dans
+`ANTHROPIC_API_KEY` (serveur uniquement). Coût indicatif : 0,02 à 0,05 $ par question. Détails :
+[spécification](docs/AGENT_VENDEUR.md).
 
 | Variable | Défaut | Rôle |
 |---|---|---|
@@ -179,6 +197,14 @@ Mots de passe hachés (scrypt), sessions côté serveur en cookie `HttpOnly`, pr
 tentatives de connexion, validation de toutes les entrées, droits vérifiés sur chaque ressource, prix et stock
 recalculés côté serveur, contrôle du contenu des photos, en-têtes de sécurité avec CSP.
 Détail menace par menace : [ARCHITECTURE.md § 9](docs/ARCHITECTURE.md#9-sécurité).
+
+---
+
+## Assistants de développement
+
+Le dossier `.claude/` contient des agents (motion design, traduction, vérification, déploiement Vercel, connexion
+Google, assistant vendeur) et des skills (méthodes du projet) utilisés par Claude Code. Leurs fonctionnalités sont
+définies dans [docs/AGENTS_ET_SKILLS.md](docs/AGENTS_ET_SKILLS.md) ; les consignes générales sont dans `CLAUDE.md`.
 
 ---
 

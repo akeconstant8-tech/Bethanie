@@ -107,6 +107,7 @@ export const STATUS_LABELS: Record<OrderStatus, string> = {
   expédition: 'Expédiée',
   en_livraison: 'En livraison',
   livrée: 'Livrée',
+  annulée: 'Annulée',
 };
 
 export const STATUS_STYLES: Record<OrderStatus, string> = {
@@ -115,6 +116,7 @@ export const STATUS_STYLES: Record<OrderStatus, string> = {
   expédition: 'bg-emerald-50 text-emerald-700',
   en_livraison: 'bg-orange-50 text-orange-700',
   livrée: 'bg-brand-100 text-brand-900',
+  annulée: 'bg-slate-100 text-slate-500',
 };
 
 export const DRIVERS = [

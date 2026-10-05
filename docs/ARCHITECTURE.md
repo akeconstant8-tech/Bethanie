@@ -1,6 +1,6 @@
 # Architecture — Béthanie
 
-> Version 1.7 — 5 octobre 2026. Décrit le code tel qu’il est dans ce dépôt.
+> Version 1.10 — 5 octobre 2026. Décrit le code tel qu’il est dans ce dépôt.
 > Besoins fonctionnels et règles métier : voir [CAHIER_DES_CHARGES.md](CAHIER_DES_CHARGES.md).
 > Maquette de référence de l’interface : [docs/maquette/maquette-ux-ui.jpg](maquette/maquette-ux-ui.jpg).
 
@@ -14,6 +14,9 @@
 | 1.5 | 3 octobre 2026 | Motion design renforcé (§4.8) : transitions orientées sur mobile, bannière animée, vol vers le panier, indicateur glissant de la barre d’onglets, inclinaison 3D des cartes, confettis au paiement ; réglage Windows « Effets d’animation » expliqué |
 | 1.6 | 3 octobre 2026 | Déploiement Vercel : l’API devient une fonction Vercel (`server/vercel.ts`, `scripts/build-vercel.mjs`, `vercel.json`) ; sans elle, `/api/*` répondait 404 et aucun produit ni photo ne s’affichait ; limite L22 |
 | 1.7 | 5 octobre 2026 | Connexion et création de compte Google via Firebase Authentication ; jeton vérifié côté API par Firebase Admin, sessions et données applicatives conservées dans SQLite |
+| 1.8 | 5 octobre 2026 | Assistant vendeur IA (Claude Opus 5.5) : `routes/assistant.ts`, `SellerAssistant.tsx` (§5.2, §5.3) ; vérification Google simplifiée et journaux explicites (`firebase.ts`, compte de service facultatif) ; master class motion design (§4.8) : réglage « Animations », onde, éclats du cœur, recherche animée, trajet de livraison, bouton « Ajouté ! », panneaux rendus à la racine ; agents et skills de développement (`.claude/`, `docs/AGENTS_ET_SKILLS.md`) ; limite L23 |
+| 1.9 | 5 octobre 2026 | Contrôleur des transactions et commission de 5 % (`transactions.ts`, tables `order_settlements` et `transaction_log`, `routes/admin.ts`, `npm run controle`) ; en-têtes de sécurité communs au serveur et à Vercel (`security-policy.js`) ; rôle administrateur par `ADMIN_EMAILS` ; audit de sécurité (`docs/AUDIT_SECURITE.md`) |
+| 1.10 | 5 octobre 2026 | Annulation des commandes non payées après 2 h (`cancelUnpaidOrders`, déclenchée au plus une fois par minute par les requêtes de l’API, compatible Vercel) et statut « annulée » ; limite de 10 commandes / heure / compte ; identifiant du projet Firebase intégré à la fonction Vercel à la construction (`build-vercel.mjs`) ; un seul bouton Google ; logo à la place du sélecteur de ville sur l’accueil mobile (ville choisie au paiement) |
 
 Les diagrammes sont écrits en [Mermaid](https://mermaid.js.org/) : GitHub les affiche directement ; dans
 VS Code, installez une extension d’aperçu Mermaid.
@@ -417,6 +420,13 @@ utilitaires dans `src/index.css`, deux crochets React dans `components/ui.tsx`, 
 | Paiement accepté | Coche qui se dessine et gerbe de 40 confettis aux couleurs de Béthanie | `CheckoutScreen.tsx`, `Confetti` (`ui.tsx`) |
 | Total du panier | Le montant défile vers sa nouvelle valeur quand une quantité change | `CartScreen.tsx` (`CountUp` sans animation à l’ouverture) |
 | Sélecteur de l’espace vendeur | Pastille qui glisse entre « Tableau de bord » et « Produits » | `SellerScreen.tsx` |
+| Réglage « Animations » (Profil) | Automatique (suit l’appareil), Toujours activées (même si Windows / Android / iPhone demandent moins d’animations), Réduites ; posé sur `<html data-motion>`, lu par le CSS et par `prefersReducedMotion()` | `MotionSetting.tsx`, `utils/motion.ts`, `pwa/pwa.ts`, `index.css` |
+| Onde au toucher | Une onde part du point touché sur les boutons principaux (classe `ripple`, un seul écouteur global) | `initRipples()` (`utils/motion.ts`), `btnPrimary`, `btnGold` |
+| Favori | Anneau et 8 éclats autour du cœur | `HeartBurst` (`ui.tsx`), cartes et fiche produit |
+| Recherche | Le champ « tape » des exemples (« Essayez « miel de savane » ») quand il est vide et inactif, sans rendu React | `useTypewriterPlaceholder` (`utils/motion.ts`), accueil et en-tête |
+| Suivi de commande | Trajet boutique → maison : le camion roule jusqu’à l’étape en cours, l’étape en cours « émet », les segments se remplissent | `DeliveryRoute` (`TrackingScreen.tsx`) |
+| Ajout depuis la fiche produit | Le bouton devient « Ajouté ! » (coche, vert) pendant 1,6 s | `ProductDetailScreen.tsx` |
+| Panneaux | Rendus à la racine de la page (`createPortal`) : jamais sous la barre d’onglets, même pendant ou après l’animation d’un écran ; fondu de secours `screen-fade` sans effet persistant | `BottomSheet` (`ui.tsx`), `App.tsx` |
 | Cartes, listes, menus | Apparition en cascade (`stagger`) | Grilles de produits et de catégories, commandes, menus, étapes du suivi |
 | Sections de l’accueil | Apparition au défilement (`useReveal`, IntersectionObserver) | Catégories, produits populaires, espace vendeur, engagements |
 | Boutons | Enfoncement léger au clic (`scale(0.97)`), ombre au survol, reflet doré sur les boutons or | Règle globale `button:active`, `btnPrimary`, `btnGold` |
@@ -464,7 +474,13 @@ flowchart LR
 
 | Module | Responsabilité |
 |---|---|
-| `routes/auth.ts` | Connexion Google vérifiée par Firebase Admin, création/rattachement du compte local, déconnexion, session courante |
+| `routes/auth.ts` | Connexion Google (jeton vérifié par `firebase.ts`), création/rattachement du compte local (`linkGoogleAccount`), déconnexion, session courante |
+| `firebase.ts` | Vérification des jetons Google : projet seul (`FIREBASE_PROJECT_ID`, à défaut `VITE_FIREBASE_PROJECT_ID`) ou avec compte de service (comptes désactivés refusés) ; journaux qui nomment la variable manquante |
+| `transactions.ts` | Contrôleur des transactions : répartition par boutique (commission 5 %, part vendeur), contrôles à chaque commande / paiement / livraison payée à la livraison, refus et alerte en cas d’écart, journal scellé, rapport (`auditReport`) |
+| `routes/admin.ts` | Rapport administrateur des transactions (`GET /admin/transactions`, rôle admin) |
+| `security-policy.js` | Politique de contenu et en-têtes de sécurité, communs à helmet et à la version Vercel |
+| `controle.ts` | `npm run controle` : contrôle complet de la base et des commissions, code de sortie 1 en cas d’écart |
+| `routes/assistant.ts` | Assistant vendeur : instantané des données de la boutique, appel à Claude Opus 5.5 (SDK `@anthropic-ai/sdk`, repli automatique), outils de **proposition** vérifiés côté serveur |
 | `routes/me.ts` | Profil, adresses et moyens de paiement (gestion de l’élément « par défaut »), favoris |
 | `routes/catalog.ts` | Liste et fiche produits, avis, boutiques, création de boutique, gestion des produits par le vendeur |
 | `routes/orders.ts` | Création de commande (recalcul + réservation de stock), paiement simulé, avancement, vue vendeur |
@@ -498,6 +514,8 @@ flowchart LR
 | GET / POST | `/orders`, `/orders/:id` | client propriétaire |
 | POST | `/orders/:id/pay` | client propriétaire, mode simulation uniquement |
 | POST | `/orders/:id/advance` | vendeur concerné, administrateur, ou client en mode démo |
+| GET | `/admin/transactions` | administrateur (`ADMIN_EMAILS`) |
+| POST | `/seller/assistant` | vendeur connecté ayant une boutique ; 40 questions / 15 min ; 503 sans `ANTHROPIC_API_KEY` |
 | GET | `/seller/orders` | vendeur |
 
 `POST /products` accepte la photo principale (`imageData`) et jusqu’à deux photos supplémentaires
@@ -727,6 +745,8 @@ Sans photo, une image neutre (`/images/placeholder-product.svg`) est utilisée.
 | Abus de connexion | 20 tentatives par 15 minutes et par IP | `routes/auth.ts` |
 | Accès aux données d’autrui | Contrôle du propriétaire sur chaque commande, produit, adresse, moyen de paiement | `routes/*.ts` |
 | Prix ou remise manipulés | Recalcul complet côté serveur depuis la base | `routes/orders.ts` |
+| Montant ou commission faussé (bogue, modification de la base) | Contrôle de chaque transaction (refus et alerte), journal scellé, recontrôle complet à la demande | `transactions.ts` |
+| Page piégée dans un cadre, script injecté | Politique de contenu et en-têtes de sécurité sur le site et l’API (Vercel compris) | `security-policy.js` |
 | Survente | Décrément conditionnel du stock dans une transaction | `routes/orders.ts` |
 | Injection SQL | Requêtes paramétrées uniquement | partout |
 | Données invalides | Schémas zod avec limites de longueur et de valeur | `routes/*.ts` |
@@ -749,7 +769,11 @@ Sans photo, une image neutre (`/images/placeholder-product.svg`) est utilisée.
 | `PAYMENT_PROVIDER` | `simulation` | Fournisseur de paiement ; toute autre valeur nécessite une implémentation dans `payments.ts` |
 | `API_URL` (Vite) | `http://localhost:4000` | Cible du proxy de développement |
 | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` | — | Configuration publique de l’application Web Firebase, requise pour lancer Google côté navigateur |
-| `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | — | Identifiants secrets du compte de service Firebase Admin, requis par l’API ; ne jamais utiliser le préfixe `VITE_` |
+| `FIREBASE_PROJECT_ID` | `VITE_FIREBASE_PROJECT_ID` | Projet Firebase dont l’API accepte les jetons Google (public) |
+| `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | — | Facultatifs, secrets : compte de service Firebase Admin, pour refuser les comptes Google désactivés ou révoqués ; jamais de préfixe `VITE_` |
+| `ANTHROPIC_API_KEY` | — | Facultative, secrète : active l’assistant vendeur (API Claude) |
+| `ADMIN_EMAILS` | — | Adresses Google des administrateurs (virgules) : accès au rapport des commissions |
+| `TRANSACTIONS_SECRET` | — | Secrète : sceau HMAC du journal des transactions (à définir en production, ne plus changer ensuite) |
 
 Le fichier `.env.local` est chargé par le serveur en local et par Vite ; il est ignoré par Git. En production,
 définir ces variables dans l’environnement de la plateforme. Ne jamais publier la clé privée du compte de service.
@@ -792,7 +816,7 @@ définir ces variables dans l’environnement de la plateforme. Ne jamais publie
 | L10 | Photos sur le disque local | À inclure dans les sauvegardes ; non partagées entre serveurs | Stockage objet (S3 ou équivalent) si plusieurs serveurs |
 | L11 | Aucun test automatisé dans le dépôt | Régressions possibles | Tests d’API (`node:test`) et parcours d’achat (Playwright) en intégration continue |
 | L12 | Paiement simulé | Aucun encaissement réel | Lot 3 : agrégateur + webhook signé ; supprimer `/orders/:id/pay` |
-| L13 | Connexion par téléphone de la maquette non branchée ; connexion Google dépend de la configuration de chaque environnement | Sans variables Firebase Web et compte de service, Google OAuth ne peut pas aboutir ; la connexion par code SMS n’est pas disponible | Configurer Firebase pour les environnements de recette et de production ; connexion SMS à cadrer |
+| L13 | Connexion par téléphone de la maquette non branchée ; connexion Google dépend de la configuration de chaque environnement | Sans les variables `VITE_FIREBASE_*` (site) la fenêtre Google ne s’ouvre pas ; côté serveur, l’identifiant de projet suffit ; sans compte de service, un compte Google désactivé peut encore se connecter jusqu’à l’expiration de son jeton (1 h) | Configurer Firebase pour chaque environnement ; ajouter le compte de service en production ; connexion SMS à cadrer |
 | L14 | Illustrations des catégories en 320 × 320 px (découpées dans la planche fournie) | Légèrement floues sur écran haute densité en grand format | Fournir chaque illustration séparément, en 640 px ou en SVG |
 | L15 | Photos des écrans de présentation et de l’encart « Espace vendeur » provisoires (marché, atelier) | Ne correspondent pas exactement à la maquette | Photos officielles de Béthanie (voir `public/images/CREDITS.md`) |
 | L16 | La cloche de l’accueil mène au suivi des commandes | Pas de centre de notifications | Lot 3 : notifications (CMD-09) |
@@ -802,6 +826,7 @@ définir ces variables dans l’environnement de la plateforme. Ne jamais publie
 | L20 | Installation sur iPhone / iPad manuelle | Safari ne propose pas de bouton d’installation ; on affiche les instructions | Limite d’Apple |
 | L21 | Font Awesome complet (≈ 180 Ko pour les polices pleines et régulières) | Poids au premier chargement (ensuite en cache) | Sous-ensemble limité aux icônes utilisées, ou icônes SVG |
 | L22 | Sur Vercel, la base SQLite et les photos importées sont dans `/tmp` de la fonction | Données de démonstration recréées à chaque démarrage d’instance : comptes, commandes, boutiques et photos ajoutés en ligne disparaissent au bout d’un moment, et deux instances simultanées ne partagent pas leurs données | Base hébergée (Turso / libSQL, compatible SQLite, ou Postgres) et stockage des photos (Vercel Blob), ou API sur un serveur avec disque (Render, Railway, VPS) appelée par Vercel |
+| L23 | Assistant vendeur : service externe payant (Anthropic) | Environ 0,02 à 0,05 $ par question ; données de la boutique (pas de données d’acheteur) envoyées à l’API Claude le temps de la réponse ; validé avec une doublure de l’API, pas encore avec une vraie clé | Suivre les jetons dans les journaux ; parcours AGV-R1 à R8 avec une vraie clé ; mentionner le service dans la politique de confidentialité |
 
 ---
 

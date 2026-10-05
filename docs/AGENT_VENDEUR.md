@@ -1,7 +1,7 @@
 # Assistant vendeur Béthanie — spécification fonctionnelle
 
 > Version 1.0 — 5 octobre 2026
-> Statut : périmètre fonctionnel proposé ; fonctionnalité non implémentée.
+> Statut : version 1 réalisée le 5 octobre 2026 (voir §8) ; à valider avec une clé Claude (parcours AGV-R1 à R8).
 > Cette spécification ne choisit ni fournisseur d’IA, ni architecture, ni méthode d’intégration.
 
 Le cahier des charges principal référence cette fonctionnalité en §4.13 sous les exigences AGV-01 à AGV-07.
@@ -130,3 +130,17 @@ de retour, de paiement, de commission ou de livraison.
 2. **Incrément suivant :** explication des statistiques et aide contextuelle dans l’espace vendeur.
 3. **Avant toute intégration :** valider ce périmètre, choisir les comportements de conservation des conversations et définir
    les critères de sécurité, de coût et de qualité de réponse dans un document technique séparé.
+
+## 8. Réalisation (version 1)
+
+| Choix | Décision |
+|---|---|
+| Modèle | Claude Opus 5.5 (`claude-opus-5-5`, Anthropic), effort « medium », repli automatique (`fallbacks: "default"`) si le modèle décline |
+| Accès | Bouton flottant « Assistant » et entrée « Assistant vendeur » du menu de l’espace vendeur |
+| Données transmises | Instantané de la seule boutique du vendeur : produits, stocks, commandes contenant ses articles, indicateurs ; aucune donnée personnelle d’acheteur |
+| Actions | Outils de **proposition** uniquement (fiche, stock, étape de commande), vérifiés par le serveur ; le vendeur confirme dans une carte, qui appelle les fonctions existantes de l’espace vendeur |
+| Conservation des conversations | Aucune côté Béthanie : la conversation vit dans la page et disparaît à la fermeture |
+| Limites d’usage | 40 questions par quart d’heure et par vendeur ; réponse en 50 s au plus |
+| Activation | Variable `ANTHROPIC_API_KEY` sur le serveur (local : `.env.local` ; Vercel : variables d’environnement) |
+| Code | `server/routes/assistant.ts`, `src/components/SellerAssistant.tsx` ; règles de développement : `.claude/skills/assistant-vendeur-ia/SKILL.md` |
+

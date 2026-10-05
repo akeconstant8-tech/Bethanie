@@ -12,9 +12,11 @@
     "vercel-build": "npm run build && node scripts/build-vercel.mjs",
     "start": "tsx server/index.ts",
     "db:reset": "tsx server/reset.ts",
+    "controle": "tsx server/controle.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@firebase/app": "^0.16.2",
     "@firebase/auth": "^1.13.6",
     "cookie-parser": "^1.4.7",

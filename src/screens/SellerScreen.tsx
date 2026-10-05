@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { NavigateParams, Order, OrderStatus, Product, ProductDraft, ScreenType, SellerShop, SellerTab, ShopDraft } from '../types';
+import { AssistantProposal, NavigateParams, Order, OrderStatus, Product, ProductDraft, ScreenType, SellerShop, SellerTab, ShopDraft } from '../types';
 import { INITIAL_CATEGORIES } from '../data/mockData';
 import { errorMessage } from '../api/client';
 import { BottomNav } from '../components/BottomNav';
+import { SellerAssistant } from '../components/SellerAssistant';
 import {
   BottomSheet,
   CountUp,
@@ -241,9 +242,26 @@ const emptyDraft = {
   characteristics: '',
 };
 
-const NewProductForm: React.FC<{ shop: SellerShop; onSubmit: (draft: ProductDraft) => Promise<void> }> = ({ shop, onSubmit }) => {
+const NewProductForm: React.FC<{
+  shop: SellerShop;
+  onSubmit: (draft: ProductDraft) => Promise<void>;
+  /** Brouillon préparé par l'assistant vendeur : le vendeur le relit, ajoute ses photos et publie. */
+  initial?: Extract<AssistantProposal, { kind: 'product' }> | null;
+}> = ({ shop, onSubmit, initial }) => {
   const { t, categoryName } = useI18n();
-  const [draft, setDraft] = useState({ ...emptyDraft, category: shop.category });
+  const [draft, setDraft] = useState(() => ({
+    ...emptyDraft,
+    category: shop.category,
+    ...(initial
+      ? {
+          title: initial.title,
+          category: initial.category,
+          description: initial.description,
+          price: initial.price !== undefined ? String(initial.price) : '',
+          stock: initial.stock !== undefined ? String(initial.stock) : emptyDraft.stock,
+        }
+      : {}),
+  }));
   const [photos, setPhotos] = useState<string[]>([]);
   const [imageError, setImageError] = useState('');
   const [loadingImage, setLoadingImage] = useState(false);
@@ -515,6 +533,8 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
 }) => {
   const { t, tn, categoryName, statusLabel, paymentLabel } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantDraft, setAssistantDraft] = useState<Extract<AssistantProposal, { kind: 'product' }> | null>(null);
   const setTab = (sellerTab: SellerTab) => onNavigate('seller', { sellerTab });
 
   const myProducts = useMemo(() => (shop ? products.filter((p) => p.vendor.id === shop.id) : []), [products, shop]);
@@ -540,8 +560,10 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
     );
   }
 
-  const revenue = myOrders.reduce((sum, x) => sum + x.amount, 0);
-  const unitsSold = myOrders.reduce((sum, x) => sum + x.lines.reduce((s, l) => s + l.quantity, 0), 0);
+  // Les commandes annulées (paiement non reçu) restent dans la liste mais ne comptent pas comme des ventes.
+  const soldOrders = myOrders.filter(({ order }) => order.status !== 'annulée');
+  const revenue = soldOrders.reduce((sum, x) => sum + x.amount, 0);
+  const unitsSold = soldOrders.reduce((sum, x) => sum + x.lines.reduce((s, l) => s + l.quantity, 0), 0);
   const toProcess = myOrders.filter(({ order }) => order.status === 'confirmée' || order.status === 'préparation').length;
   const lowStock = myProducts.filter((p) => p.stock <= 5).length;
   const firstName = userName.split(' ')[0];
@@ -566,7 +588,7 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
       />
       <KpiCard
         label={t('common.orders')}
-        value={myOrders.length}
+        value={soldOrders.length}
         note={t('seller.kpi.ordersNote', { n: toProcess })}
         icon="fa-box"
         iconClass="bg-emerald-50 text-emerald-700"
@@ -646,7 +668,7 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
 
   /* ---------- Statistiques (calculées à partir des commandes reçues) ---------- */
   const bestSellers = Array.from(
-    myOrders
+    soldOrders
       .flatMap((x) => x.lines)
       .reduce((map, l) => {
         const entry = map.get(l.product.id) ?? { product: l.product, units: 0, amount: 0 };
@@ -663,16 +685,19 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
     count: myOrders.filter((x) => x.order.status === status).length,
   })) as { status: OrderStatus; count: number }[];
   const maxStatus = Math.max(1, ...byStatus.map((s) => s.count));
-  const averageBasket = myOrders.length ? revenue / myOrders.length : 0;
+  const averageBasket = soldOrders.length ? revenue / soldOrders.length : 0;
 
   const content = () => {
     switch (activeTab) {
       case 'new':
         return (
           <NewProductForm
+            key={assistantDraft?.id ?? 'vide'}
             shop={shop}
+            initial={assistantDraft}
             onSubmit={async (draft) => {
               await onAddProduct(draft);
+              setAssistantDraft(null);
               setTab('products');
             }}
           />
@@ -866,6 +891,7 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
 
   const menuItems: [string, string, () => void][] = [
     ['fa-plus', t('common.addProduct'), () => setTab('new')],
+    ['fa-wand-magic-sparkles', t('assistant.title'), () => setAssistantOpen(true)],
     ['fa-eye', t('seller.menu.viewShop'), () => onNavigate('catalog', { vendor: shop.id, category: 'all' })],
     ['fa-bag-shopping', t('seller.menu.backToShopping'), () => onNavigate('home')],
     ['fa-user', t('seller.menu.myAccount'), () => onNavigate('account')],
@@ -964,6 +990,29 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
           ]}
         />
       )}
+
+      {/* Assistant vendeur (IA) : bouton flottant et panneau de conversation */}
+      <button
+        onClick={() => setAssistantOpen(true)}
+        aria-label={t('assistant.open')}
+        className={`animate-scale-in ripple fixed right-4 lg:right-8 ${
+          activeTab === 'new' ? 'bottom-6' : 'bottom-24'
+        } lg:bottom-8 z-40 h-12 pl-4 pr-5 rounded-full bg-linear-to-br from-brand-700 to-brand-900 text-white font-semibold text-sm shadow-lift hover:shadow-glow flex items-center gap-2 cursor-pointer mb-[env(safe-area-inset-bottom)]`}
+      >
+        <i className="fa-solid fa-wand-magic-sparkles text-gold-400"></i>
+        {t('assistant.fab')}
+      </button>
+      <SellerAssistant
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        firstName={firstNameDisplay}
+        onUpdateStock={(productId, stock) => onUpdateProduct(productId, { stock })}
+        onAdvanceOrder={onAdvanceOrder}
+        onUseDraft={(draft) => {
+          setAssistantDraft(draft);
+          setTab('new');
+        }}
+      />
 
       <BottomSheet open={menuOpen} title={shop.name} onClose={() => setMenuOpen(false)}>
         <ul className="-mx-2 space-y-1">

@@ -10,7 +10,7 @@ import { PLACEHOLDER_IMAGE, saveImageDataUrl } from '../uploads.ts';
 
 export const catalogRouter = Router();
 
-const CATEGORY_IDS = ['mode', 'electronique', 'maison', 'beaute', 'alimentation', 'artisanat', 'agriculture', 'services'];
+export const CATEGORY_IDS = ['mode', 'electronique', 'maison', 'beaute', 'alimentation', 'artisanat', 'agriculture', 'services'];
 
 /* ---------- Produits (public) ---------- */
 

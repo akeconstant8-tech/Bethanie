@@ -1,0 +1,95 @@
+# Audit de sécurité — Béthanie
+
+> Audit du 5 octobre 2026 — code de la branche de travail (après connexion Google, assistant vendeur et contrôleur
+> des transactions) et site en ligne https://bethanie.vercel.app (lecture seule).
+> Agent responsable : `.claude/agents/securite.md` ; méthode : `.claude/skills/audit-securite/SKILL.md`.
+
+## Synthèse
+
+| | Nombre |
+|---|---|
+| Corrigés | 7 |
+| Critiques à traiter **avant d’encaisser de vrais paiements** | 3 |
+| Moyens | 3 (dont 1 conservé par décision) |
+| Faibles | 5 |
+| Points conformes vérifiés | 6 |
+
+**En une phrase** : les montants sont fiables et désormais contrôlés à chaque transaction (commission de 5 %
+comprise), mais Béthanie ne doit pas encore encaisser d’argent réel : le paiement est simulé et, en ligne, les
+données sont temporaires.
+
+Gravité : **Critique** = perte d’argent ou de données certaine en usage réel ; **Élevée** = exploitable facilement ;
+**Moyenne** = exploitable dans certaines conditions ; **Faible** = impact limité ; **Info** = constat.
+
+## 1. Corrigés dans cette version
+
+| ID | Gravité | Constat | Correction |
+|---|---|---|---|
+| S1 | Élevée | La commission de 5 % (RG-09) était seulement **affichée** : ni calculée, ni enregistrée, ni contrôlée par le serveur ; rien ne permettait de savoir ce que Béthanie doit percevoir | **Contrôleur des transactions** (`server/transactions.ts`) : répartition par boutique à chaque commande (5 % pour Béthanie, 95 % pour le vendeur), contrôle des montants, transaction refusée en cas d’écart, journal scellé, rapport administrateur, `npm run controle` |
+| S2 | Élevée | En ligne, les pages du site n’avaient **aucun en-tête de sécurité** : pas de politique de contenu, rien n’empêchait un autre site d’afficher Béthanie dans un cadre pour piéger un clic (« clickjacking »), pas de `nosniff` (constaté par `curl -I`) | Politique de contenu, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy` ajoutés aux pages Vercel ; règles communes au serveur et à Vercel (`server/security-policy.js`) ; aucune erreur dans le navigateur |
+| S3 | Moyenne | En mode « serveur unique » (`npm start`), la règle d’ouverture de fenêtre (`Cross-Origin-Opener-Policy: same-origin`) coupait le lien entre le site et la fenêtre Google ouverte par Firebase : connexion bloquée ou incertaine | `same-origin-allow-popups` |
+| S4 | Moyenne | Le rôle administrateur existait sans aucun moyen de l’attribuer | Variable `ADMIN_EMAILS` : rôle admin à la connexion Google pour ces adresses vérifiées ; route `/api/admin/transactions` réservée |
+| S5 | Moyenne | Commandes non payées : stock bloqué sans limite de temps, nombre de commandes illimité (ancien M2) | Commande non payée depuis **2 heures** : annulée automatiquement (statut « Annulée », paiement « échoué »), stock remis en vente, commission annulée et inscrite au journal ; **10 commandes par heure** et par compte (décision du 5 octobre 2026). Testé : stock 18 → 17 → 18, onzième commande refusée |
+| S6 | Moyenne | En ligne, le serveur ne connaissait pas le projet Firebase : « La connexion Google n’est pas configurée sur le serveur » | L’identifiant du projet (public) est repris des réglages de Vercel à la construction et intégré au serveur ; vérifié : un faux jeton est refusé (401) au lieu de l’erreur de configuration (503) |
+| S7 | Faible | Double bouton « Créer un compte avec Google » / « Continuer avec Google » (même action) | Un seul bouton ; le compte est créé automatiquement à la première connexion |
+
+## 2. Critiques — à traiter avant tout paiement réel
+
+| ID | Gravité | Constat | Conséquence | Correction proposée |
+|---|---|---|---|---|
+| C1 | Critique | En ligne, `PAYMENT_PROVIDER=simulation` et `DEMO_MODE=true` (réponse de `/api/config`) : tout client connecté peut déclarer **sa** commande « payée » (`POST /api/orders/:id/pay`) et, en mode démo, la faire avancer jusqu’à « livrée » | Les commissions « perçues » du rapport sont **fictives** tant que le paiement n’est pas réel ; un client pourrait obtenir une commande marquée payée sans payer | Lot 3 : agrégateur Mobile Money / carte (CinetPay, PayDunya…) avec confirmation signée par le prestataire (webhook) ; `DEMO_MODE=false` ; retirer la route de paiement simulé |
+| C2 | Critique | Sur Vercel, la base est dans `/tmp` (limite L22) | Commandes, répartitions et **journal des commissions effacés** à chaque redémarrage de l’instance | Base hébergée persistante (Turso / libSQL, compatible SQLite, ou Postgres) et stockage des photos (Vercel Blob) |
+| C3 | Élevée | Pas d’encaissement centralisé ni de reversement aux vendeurs (VEN-08) | La commission n’est « perçue » que si l’argent des clients arrive sur le compte de Béthanie, qui reverse ensuite 95 % | Compte marchand Béthanie chez l’agrégateur ; reversements automatiques depuis la table `order_settlements` (part vendeur), relevé par vendeur |
+
+## 3. Moyens
+
+| ID | Constat | Conséquence | Correction proposée |
+|---|---|---|---|
+| M1 | Codes promo réutilisables sans limite (`BIENVENUE` à chaque commande, `BETHANIE10`…) | Les remises sont à la charge de Béthanie (la commission est calculée sur le prix des articles) : un client peut les cumuler commande après commande | **Conservé tel quel** par décision du porteur de projet (5 octobre 2026) ; à revoir si les remises coûtent trop |
+| M3 | Sans compte de service Firebase, un compte Google désactivé dans la console peut encore se connecter pendant la durée de son jeton (1 h) | Accès d’un compte banni pendant une heure | Ajouter `FIREBASE_CLIENT_EMAIL` et `FIREBASE_PRIVATE_KEY` en production |
+| M4 | Le journal des transactions est scellé par une simple empreinte tant que `TRANSACTIONS_SECRET` n’est pas défini | Quelqu’un ayant accès à la base pourrait réécrire tout le journal de façon cohérente | Définir `TRANSACTIONS_SECRET` (longue chaîne aléatoire, à garder et ne jamais retirer) ; sur une base qui a déjà des transactions, lancer une fois `npm run controle -- --sceller` ; à terme, copie du journal hors de la base. Testé : montant modifié, ligne recalculée sans la clé, journal entier converti, clé retirée → tous signalés |
+
+## 4. Faibles
+
+| ID | Constat | Correction proposée |
+|---|---|---|
+| F1 | Commande multi-vendeurs à statut unique (RG-10) : un vendeur peut faire avancer la commande d’un autre, jusqu’à « livrée » (qui déclenche l’encaissement en paiement à la livraison) | Sous-commandes par vendeur (déjà prévu P1) |
+| F2 | Un vendeur peut acheter ses propres produits (statistiques gonflées) ; la commission reste due | Signaler ces commandes dans le rapport administrateur |
+| F3 | En mode `npm start` derrière un proxy, l’adresse des visiteurs n’est pas lue (`trust proxy`) : la limitation des tentatives de connexion est commune à tous | Réglé sur Vercel ; à régler sur tout autre hébergeur |
+| F4 | Assistant vendeur : les titres de produits sont transmis à l’IA ; un vendeur pourrait y glisser des consignes | Effet limité à sa propre boutique ; l’IA ne peut que proposer, le serveur vérifie chaque proposition |
+| F5 | Données personnelles (adresses, téléphones) sans durée de conservation ni politique de confidentialité ; l’assistant IA utilise un service externe (Anthropic) | Lot 5 : mentions légales, politique de confidentialité, durée de conservation |
+
+## 5. Points conformes vérifiés
+
+| Domaine | Constat |
+|---|---|
+| Montants | Prix, frais de livraison et remises recalculés par le serveur à partir de la base ; le navigateur ne peut pas imposer un prix ; stock décrémenté de façon atomique |
+| Sessions | Jeton aléatoire de 256 bits, seule son empreinte est en base ; cookie `HttpOnly`, `Secure` en ligne, `SameSite=Lax` ; expiration à 30 jours ; déconnexion effective |
+| Requêtes forgées | Toute modification exige l’en-tête `X-Bethanie`, impossible à ajouter depuis un autre site sans autorisation (aucune n’est donnée) |
+| Connexion Google | Signature, projet, émetteur et expiration du jeton vérifiés ; seules les adresses Google vérifiées sont acceptées ; tentatives limitées |
+| Photos | Type vérifié sur le contenu (JPEG, PNG, WebP), SVG refusé, 2,5 Mo maximum, noms aléatoires |
+| Secrets et bibliothèques | `npm audit` : 0 vulnérabilité connue ; aucun secret dans l’historique Git (seulement des exemples) ; seules les clés publiques `VITE_FIREBASE_*` vont dans le site |
+
+## 6. Contrôle des transactions — fonctionnement
+
+| À chaque… | Le contrôleur |
+|---|---|
+| Commande | Calcule par boutique : montant des articles, commission 5 % (arrondie au franc), part du vendeur (le reste) — statut « prévue » ; vérifie sous-total, total, remise et répartition ; refuse et annule tout en cas d’écart |
+| Paiement en ligne | Passe la commission à « acquise » dans la même opération que le paiement |
+| Livraison payée à la livraison | Passe la commission à « acquise » au moment où la commande est livrée et payée |
+| Événement | Inscrit une ligne au journal scellé (empreinte de la ligne précédente ; HMAC avec `TRANSACTIONS_SECRET`) ; une fois la clé définie, toute ligne non scellée par elle est signalée (anciennes lignes à sceller avec `npm run controle -- --sceller`) |
+| Demande de l’administrateur | Recontrôle toutes les commandes et le journal : `npm run controle`, carte « Commissions Béthanie » du Profil |
+
+Tests réalisés (serveur isolé, données de test) : commande sur deux boutiques (2 500 + 900 FCFA de commission sur
+50 000 + 18 000 FCFA), paiement en ligne, paiement à la livraison (commission acquise à la livraison seulement),
+transaction faussée (refusée, aucune commande créée, stock inchangé, alerte au journal), total modifié dans la base
+(écart détecté), ligne du journal modifiée (détectée, numéro de ligne donné), accès refusé (403) à une cliente.
+
+## 7. Variables à définir en production
+
+| Variable | Rôle |
+|---|---|
+| `ADMIN_EMAILS` | Adresses Google des administrateurs (séparées par des virgules) |
+| `TRANSACTIONS_SECRET` | Clé secrète du sceau du journal (longue chaîne aléatoire, à ne jamais changer ensuite) |
+| `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | Refus des comptes Google désactivés (M3) |
+| `DEMO_MODE=false`, `PAYMENT_PROVIDER` | Le jour où le paiement réel est branché (C1) |

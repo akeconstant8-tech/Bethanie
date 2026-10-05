@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { OrderStatus } from '../../src/types/index.ts';
 import {
@@ -14,12 +15,16 @@ import {
 } from '../../src/utils/commerce.ts';
 import { currentUser } from '../auth.ts';
 import { config } from '../config.ts';
-import { db, transaction, type Row } from '../db.ts';
+import { db, type Row } from '../db.ts';
 import { badRequest, conflict, forbidden, notFound, parse } from '../http.ts';
 import { isSimulation, startPayment } from '../payments.ts';
 import { getProduct, loadOrders } from '../serializers.ts';
+import { acquireCommission, backfillSettlements, guarded, settleOrder } from '../transactions.ts';
 
 export const ordersRouter = Router();
+
+// Commandes antérieures au contrôle des transactions : répartition calculée une fois au démarrage.
+backfillSettlements();
 
 const phoneDigits = (v: string) => v.replace(/\D/g, '').length;
 
@@ -78,7 +83,17 @@ ordersRouter.get('/orders/:id', (req, res) => {
   res.json({ order: loadOrders([row])[0] });
 });
 
-ordersRouter.post('/orders', (req, res) => {
+// Au plus 10 commandes par heure et par compte : empêche de bloquer le stock d'un vendeur en masse.
+const orderLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => currentUser(req).id,
+  message: { error: 'Trop de commandes en peu de temps. Réessayez dans une heure.' },
+});
+
+ordersRouter.post('/orders', orderLimiter, (req, res) => {
   const user = currentUser(req);
   const data = parse(CheckoutSchema, req.body);
   const payment = PAYMENT_OPTIONS.find((o) => o.id === data.paymentMethod)!;
@@ -131,7 +146,7 @@ ordersRouter.post('/orders', (req, res) => {
   const id = newOrderId();
   if (!cashOnDelivery) startPayment(id, total, data.paymentMethod);
 
-  transaction(() => {
+  guarded(() => {
     db.prepare(
       `INSERT INTO orders (id, user_id, status, payment_status, payment_method, phone_number, contact_phone, delivery_method,
          city, shipping_address, subtotal, delivery_fee, discount, total, promo_code)
@@ -156,6 +171,8 @@ ordersRouter.post('/orders', (req, res) => {
       if (changes !== 1) throw conflict(`« ${line.product.title} » vient d’être épuisé.`);
     }
     db.prepare(`INSERT INTO order_events (order_id, status) VALUES (?, 'confirmée')`).run(id);
+    // Contrôle des transactions : commission de 5 % par boutique, vérification des montants, journal scellé.
+    settleOrder(id);
   });
 
   res.status(201).json({ order: loadOrders([getOrderRow(id)])[0] });
@@ -168,7 +185,10 @@ ordersRouter.post('/orders/:id/pay', (req, res) => {
   const row = getOrderRow(req.params.id);
   if (row.user_id !== user.id) throw notFound('Commande introuvable.');
   if (row.payment_status === 'en_attente') {
-    db.prepare(`UPDATE orders SET payment_status = 'payé' WHERE id = ?`).run(String(row.id));
+    guarded(() => {
+      db.prepare(`UPDATE orders SET payment_status = 'payé' WHERE id = ?`).run(String(row.id));
+      acquireCommission(String(row.id), 'en ligne');
+    });
   }
   res.json({ order: loadOrders([getOrderRow(String(row.id))])[0] });
 });
@@ -186,13 +206,14 @@ ordersRouter.post('/orders/:id/advance', (req, res) => {
   if (!isSeller && user.role !== 'admin' && !(config.demoMode && isOwner)) {
     throw isOwner ? forbidden('Seul le vendeur peut faire avancer la commande.') : notFound('Commande introuvable.');
   }
+  if (row.status === 'annulée') throw conflict('Cette commande a été annulée.');
   if (row.payment_status === 'en_attente') {
     throw conflict('Paiement en attente : la commande ne peut pas encore être préparée.');
   }
   const target = nextStatus(row.status as OrderStatus);
   if (!target) throw conflict('Cette commande est déjà livrée.');
 
-  transaction(() => {
+  guarded(() => {
     db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(target, String(row.id));
     db.prepare('INSERT INTO order_events (order_id, status) VALUES (?, ?)').run(String(row.id), target);
     if (target === 'en_livraison' && !row.driver) {
@@ -202,6 +223,7 @@ ordersRouter.post('/orders/:id/advance', (req, res) => {
     }
     if (target === 'livrée' && row.payment_status === 'à_la_livraison') {
       db.prepare(`UPDATE orders SET payment_status = 'payé' WHERE id = ?`).run(String(row.id));
+      acquireCommission(String(row.id), 'à la livraison');
     }
   });
 

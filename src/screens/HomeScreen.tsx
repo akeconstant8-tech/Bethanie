@@ -1,18 +1,17 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { NavigateParams, Product, ScreenType } from '../types';
 import { INITIAL_CATEGORIES, artisanWoodworkerImg, homeBannerImg } from '../data/mockData';
+import { BethanieLogo } from '../components/BethanieLogo';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { ProductCard } from '../components/ProductCard';
 import { HeaderIconButton, MobileHeader, SectionHeader, btnGold, useReveal } from '../components/ui';
 import { TranslationKey, useI18n } from '../i18n';
-import { CITIES } from '../utils/commerce';
+import { useTypewriterPlaceholder } from '../utils/motion';
 
 interface HomeScreenProps {
   products: Product[];
   wishlist: string[];
-  selectedCity: string;
   ongoingOrders: number;
-  onCityChange: (city: string) => void;
   onSearch: (query: string) => void;
   onNavigate: (screen: ScreenType, params?: NavigateParams) => void;
   onOpenProduct: (product: Product) => void;
@@ -69,9 +68,7 @@ const TRUST: [string, TranslationKey, TranslationKey][] = [
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   products,
   wishlist,
-  selectedCity,
   ongoingOrders,
-  onCityChange,
   onSearch,
   onNavigate,
   onOpenProduct,
@@ -79,8 +76,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onToggleWishlist,
   installBanner,
 }) => {
-  const { t, cityLabel, categoryName } = useI18n();
+  const { t, categoryName } = useI18n();
   const [query, setQuery] = useState('');
+  const searchField = useRef<HTMLInputElement>(null);
+  useTypewriterPlaceholder(searchField, t('common.searchPlaceholder'), t('search.examples'), t('search.try'));
   // Sections qui apparaissent au défilement
   const categoriesReveal = useReveal<HTMLElement>();
   const popularReveal = useReveal<HTMLElement>();
@@ -98,21 +97,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       {/* En-tête mobile : ville, langue, notifications, recherche */}
       <MobileHeader tone="brand">
         <div className="flex items-center justify-between gap-2">
-          <label className="flex items-center gap-2 min-w-0 text-sm font-medium">
-            <i className="fa-solid fa-location-dot text-gold-400"></i>
-            <span className="sr-only">{t('common.yourCity')}</span>
-            <select
-              value={selectedCity}
-              onChange={(e) => onCityChange(e.target.value)}
-              className="bg-transparent border-0 text-white font-medium focus:outline-none cursor-pointer truncate min-w-0"
-            >
-              {CITIES.map((city) => (
-                <option key={city} value={city} className="text-slate-800">
-                  {cityLabel(city)}
-                </option>
-              ))}
-            </select>
-          </label>
+          {/* Logo et devise de Béthanie ; la ville de livraison se choisit au moment du paiement. */}
+          <BethanieLogo variant="white" size="md" className="min-w-0" />
           <div className="flex items-center gap-1 shrink-0">
             <LanguageSwitcher tone="brand" compact />
             <HeaderIconButton
@@ -135,6 +121,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         >
           <i className="fa-solid fa-magnifying-glass text-slate-400"></i>
           <input
+            ref={searchField}
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -173,7 +160,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <div className="animate-rise-in flex flex-wrap gap-3 pt-1" style={delay(420)}>
               <button
                 onClick={() => onNavigate('categories')}
-                className="group shine shine-loop inline-flex items-center gap-2 h-10 lg:h-11 px-5 lg:px-6 rounded-xl bg-linear-to-b from-gold-400 to-gold-500 hover:to-gold-600 hover:shadow-glow text-brand-dark text-sm lg:text-base font-bold shadow-lg shadow-black/20 cursor-pointer"
+                className="group shine shine-loop ripple inline-flex items-center gap-2 h-10 lg:h-11 px-5 lg:px-6 rounded-xl bg-linear-to-b from-gold-400 to-gold-500 hover:to-gold-600 hover:shadow-glow text-brand-dark text-sm lg:text-base font-bold shadow-lg shadow-black/20 cursor-pointer"
               >
                 {t('home.discover')}
                 <i className="fa-solid fa-chevron-right text-xs transition-transform duration-200 group-hover:translate-x-0.5"></i>

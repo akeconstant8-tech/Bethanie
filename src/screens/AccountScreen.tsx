@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { AccountTab, NavigateParams, Order, Product, ScreenType, User } from '../types';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
+import { MotionSetting } from '../components/MotionSetting';
+import { AdminCommissions } from '../components/AdminCommissions';
 import { ProductCard } from '../components/ProductCard';
 import { PaymentLogo } from '../components/PaymentLogo';
 import { CountUp, EmptyState, MobileHeader, StatusPill, btnPrimary, cardClass, inputClass } from '../components/ui';
@@ -9,7 +11,7 @@ import { errorMessage } from '../api/client';
 import { PAYMENT_OPTIONS, PROMO_CODES, formatPrice } from '../utils/commerce';
 
 interface AccountScreenProps {
-  user: User;
+  user: User & { role?: 'customer' | 'admin' };
   orders: Order[];
   products: Product[];
   wishlist: string[];
@@ -147,7 +149,7 @@ export const AccountScreen: React.FC<AccountScreenProps> = ({
 
   const setTab = (tab: AccountTab) => onNavigate('account', { tab });
   const tabLabel = (tab: AccountTab) => t(`account.tab.${tab}` as TranslationKey);
-  const ongoing = orders.filter((o) => o.status !== 'livrée');
+  const ongoing = orders.filter((o) => o.status !== 'livrée' && o.status !== 'annulée');
   const favorites = products.filter((p) => wishlist.includes(p.id));
   const totalSpent = orders.reduce((sum, o) => sum + o.total, 0);
   const shopLabel = hasShop ? t('common.sellerSpace') : t('common.openShop');
@@ -465,6 +467,8 @@ export const AccountScreen: React.FC<AccountScreenProps> = ({
               ))}
             </div>
 
+            {user.role === 'admin' && <AdminCommissions />}
+
             <nav className={`stagger ${cardClass} overflow-hidden divide-y divide-slate-100`} aria-label={t('account.menu')}>
               <MenuRow icon="fa-receipt" label={tabLabel('orders')} badge={ongoing.length} onClick={() => setTab('orders')} />
               <MenuRow icon="fa-heart" label={tabLabel('wishlist')} badge={wishlist.length} onClick={() => setTab('wishlist')} />
@@ -478,6 +482,7 @@ export const AccountScreen: React.FC<AccountScreenProps> = ({
                 <span className="flex-1 text-sm font-medium text-slate-800">{t('lang.label')}</span>
                 <LanguageSwitcher />
               </div>
+              <MotionSetting />
               <MenuRow icon="fa-headset" label={t('account.support')} href={SUPPORT_EMAIL} />
               {onInstall && <MenuRow icon="fa-mobile-screen-button" tone="gold" label={t('pwa.install')} onClick={onInstall} />}
             </nav>

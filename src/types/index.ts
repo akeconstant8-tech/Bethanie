@@ -64,7 +64,8 @@ export interface OrderTrackingStep {
 export interface Order {
   id: string;
   date: string;
-  status: 'confirmée' | 'préparation' | 'expédition' | 'en_livraison' | 'livrée';
+  /** « annulée » : paiement non reçu sous 2 heures, stock remis en vente (hors du cycle de livraison). */
+  status: 'confirmée' | 'préparation' | 'expédition' | 'en_livraison' | 'livrée' | 'annulée';
   items: CartItem[];
   subtotal: number;
   deliveryFee: number;
@@ -223,4 +224,25 @@ export interface CheckoutPayload {
 export interface ApiConfig {
   demoMode: boolean;
   paymentProvider: string;
+}
+
+/** Proposition de l'assistant vendeur, à confirmer par le vendeur (voir server/routes/assistant.ts). */
+export type AssistantProposal =
+  | { kind: 'product'; id: string; title: string; category: string; description: string; price?: number; stock?: number }
+  | { kind: 'stock'; id: string; productId: string; title: string; from: number; to: number }
+  | { kind: 'order'; id: string; orderId: string; from: OrderStatus; to: OrderStatus };
+
+/** Rapport du contrôle des transactions (GET /api/admin/transactions, administrateurs). */
+export interface TransactionReport {
+  taux: number;
+  commandesControlees: number;
+  commissionAcquise: number;
+  commissionPrevue: number;
+  ventesPayees: number;
+  ventesEnAttente: number;
+  parBoutique: { boutique: string; commissionAcquise: number; commissionPrevue: number; partVendeurs: number }[];
+  anomalies: { commande: string; ecarts: string[] }[];
+  transactionsRefusees: number;
+  journal: { intact: boolean; lignes: number; premiereLigneAlteree: number | null; nonScellees: number; cause: string | null; scelle: string };
+  verifieLe: string;
 }

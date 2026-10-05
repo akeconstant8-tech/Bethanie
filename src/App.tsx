@@ -34,7 +34,7 @@ import { usePersistentState } from './hooks/usePersistentState';
 import { TranslationKey, useI18n } from './i18n';
 import { acknowledgeInstall, applyUpdate, hideBootSplash, promptInstall, usePwa } from './pwa/pwa';
 import { cartCount, findPromo, isSameCartLine } from './utils/commerce';
-import { supportsViewTransitions, withViewTransition } from './utils/motion';
+import { supportsViewTransitions, useMotionPreference, withViewTransition } from './utils/motion';
 
 /* Écrans chargés à la demande (moins de JavaScript au démarrage), puis préchargés en arrière-plan. */
 const loadCheckout = () => import('./screens/CheckoutScreen');
@@ -90,12 +90,6 @@ const isTabRoot = ({ screen, params }: Route) =>
   screen === 'cart' ||
   (screen === 'account' && (!params.tab || params.tab === 'overview' || params.tab === 'orders'));
 
-/** Navigateurs sans l'API View Transitions : animation du nouvel écran selon le sens. */
-const SCREEN_ANIMATION: Record<NavDirection, string> = {
-  forward: 'screen-forward',
-  back: 'screen-back',
-  tab: 'animate-fade-in',
-};
 
 const buildHash = ({ screen, params }: Route) => {
   const base = `#/${SCREEN_PATHS[screen]}`;
@@ -178,7 +172,9 @@ const App: React.FC = () => {
   const installAvailable = !pwa.isStandalone && (pwa.canInstall || pwa.isIOS);
   const showInstallBanner = installAvailable && Date.now() - installDismissedAt > INSTALL_BANNER_PAUSE_MS;
   // Sans l'API View Transitions (Firefox…), simple fondu à chaque changement d'écran.
-  const fadeBetweenScreens = useMemo(() => !supportsViewTransitions(), []);
+  const motionPreference = useMotionPreference();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- recalculé quand le réglage « Animations » change
+  const fadeBetweenScreens = useMemo(() => !supportsViewTransitions(), [motionPreference]);
 
   const wishlist = me ? me.wishlist : guestWishlist;
   const productsById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
@@ -695,14 +691,12 @@ const App: React.FC = () => {
           <HomeScreen
             products={products}
             wishlist={wishlist}
-            selectedCity={selectedCity}
-            ongoingOrders={orders.filter((o) => o.status !== 'livrée').length}
+            ongoingOrders={orders.filter((o) => o.status !== 'livrée' && o.status !== 'annulée').length}
             installBanner={
               showInstallBanner && (
                 <InstallBanner onInstall={requestInstall} onDismiss={() => setInstallDismissedAt(Date.now())} />
               )
             }
-            onCityChange={setSelectedCity}
             onSearch={searchCatalog}
             onNavigate={navigate}
             onOpenProduct={openProduct}
@@ -888,7 +882,7 @@ const App: React.FC = () => {
         onInstall={pwa.canInstall && !pwa.isStandalone ? requestInstall : undefined}
       />
       <main className={`flex-1 overflow-x-clip ${mainPadding} lg:pb-0`}>
-        <div key={screen} className={fadeBetweenScreens ? SCREEN_ANIMATION[navDirectionRef.current] : undefined}>
+        <div key={screen} className={fadeBetweenScreens ? 'screen-fade' : undefined}>
           <Suspense fallback={<PageSkeleton />}>{renderScreen()}</Suspense>
         </div>
       </main>

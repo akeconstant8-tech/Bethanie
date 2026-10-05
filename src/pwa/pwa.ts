@@ -156,4 +156,10 @@ export const hideBootSplash = () => {
 
 /* ---------- Préférence « réduire les animations » ---------- */
 
-export const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+/** Animations réduites ? Choix fait dans le Profil (data-motion sur <html>), sinon réglage de l'appareil. */
+export const prefersReducedMotion = () => {
+  const choice = document.documentElement.dataset.motion;
+  if (choice === 'on') return false;
+  if (choice === 'off') return true;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+};

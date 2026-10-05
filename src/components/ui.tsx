@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { OrderStatus } from '../types';
 import { useI18n } from '../i18n';
 import { prefersReducedMotion } from '../pwa/pwa';
@@ -11,8 +12,8 @@ import { STATUS_STYLES } from '../utils/commerce';
 /** Transition commune : couleurs, ombre et léger enfoncement au clic (règle globale button:active, index.css). */
 const press = 'transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-out';
 
-export const btnPrimary = `inline-flex items-center justify-center gap-2 rounded-xl bg-brand-900 hover:bg-brand-dark hover:shadow-[0_10px_24px_-10px_rgba(15,81,50,0.6)] text-white font-semibold cursor-pointer disabled:bg-slate-300 disabled:text-white disabled:shadow-none ${press}`;
-export const btnGold = `shine inline-flex items-center justify-center gap-2 rounded-xl bg-gold-500 hover:bg-gold-400 hover:shadow-glow text-brand-dark font-semibold cursor-pointer disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none ${press}`;
+export const btnPrimary = `ripple inline-flex items-center justify-center gap-2 rounded-xl bg-brand-900 hover:bg-brand-dark hover:shadow-[0_10px_24px_-10px_rgba(15,81,50,0.6)] text-white font-semibold cursor-pointer disabled:bg-slate-300 disabled:text-white disabled:shadow-none ${press}`;
+export const btnGold = `shine ripple inline-flex items-center justify-center gap-2 rounded-xl bg-gold-500 hover:bg-gold-400 hover:shadow-glow text-brand-dark font-semibold cursor-pointer disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none ${press}`;
 export const btnOutline = `inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white hover:border-brand-900 hover:shadow-soft text-slate-800 font-semibold cursor-pointer disabled:opacity-50 ${press}`;
 export const inputClass =
   'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm placeholder:text-slate-400 transition-[border-color,box-shadow] duration-200 focus:outline-none focus:border-brand-900 focus:ring-2 focus:ring-brand-900/10';
@@ -94,6 +95,22 @@ export const CountUp: React.FC<{
     </>
   );
 };
+
+/* ------------------------------------------------------------------ */
+/* Éclats autour du cœur (ajout aux favoris)                           */
+/* ------------------------------------------------------------------ */
+
+const BURST_COLORS = ['#ef4444', '#e5a93c', '#f97316', '#ef4444', '#0f5132', '#e5a93c', '#f43f5e', '#f4cd6e'];
+
+/** Anneau et 8 éclats qui partent du cœur ; à afficher avec une `key` nouvelle à chaque ajout. */
+export const HeartBurst: React.FC = () =>
+  prefersReducedMotion() ? null : (
+    <span aria-hidden="true" className="heart-burst">
+      {BURST_COLORS.map((color, i) => (
+        <span key={i} style={{ '--a': `${i * 45}deg`, '--c': color } as React.CSSProperties}></span>
+      ))}
+    </span>
+  );
 
 /* ------------------------------------------------------------------ */
 /* Confettis (paiement accepté)                                        */
@@ -425,7 +442,8 @@ export const BottomSheet: React.FC<{
   }, [open, onClose]);
 
   if (!rendered) return null;
-  return (
+  // Rendu à la racine de la page : un écran animé ne peut pas faire passer le panneau sous la barre d'onglets.
+  return createPortal(
     <div className="fixed inset-0 z-80 flex items-end lg:items-center justify-center" role="dialog" aria-modal="true" aria-label={title}>
       <div
         className={`absolute inset-0 bg-slate-900/50 backdrop-blur-[2px] ${closing ? 'animate-fade-out' : 'animate-fade-in'}`}
@@ -446,6 +464,7 @@ export const BottomSheet: React.FC<{
         <div className="overflow-y-auto px-5 py-4 flex-1">{children}</div>
         {footer && <div className="px-5 py-4 border-t border-slate-100 pb-[max(1rem,env(safe-area-inset-bottom))]">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

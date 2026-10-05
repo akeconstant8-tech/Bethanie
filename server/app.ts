@@ -4,8 +4,12 @@ import cookieParser from 'cookie-parser';
 import express from 'express';
 import helmet from 'helmet';
 import { loadUser, requireAuth, requireClientHeader } from './auth.ts';
+import { CSP_DIRECTIVES, OPENER_POLICY } from './security-policy.js';
+import { sweepUnpaidOrders } from './transactions.ts';
 import { config } from './config.ts';
 import { errorHandler } from './http.ts';
+import { adminRouter } from './routes/admin.ts';
+import { assistantRouter } from './routes/assistant.ts';
 import { authRouter } from './routes/auth.ts';
 import { catalogRouter } from './routes/catalog.ts';
 import { meRouter } from './routes/me.ts';
@@ -17,25 +21,9 @@ export const createApp = () => {
 
   app.use(
     helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          scriptSrc: ["'self'"],
-          // Polices et icônes sont servies par le site lui-même (public/fonts, public/vendor).
-          styleSrc: ["'self'", "'unsafe-inline'"],
-          fontSrc: ["'self'", 'data:'],
-          imgSrc: ["'self'", 'data:', 'blob:', 'https://images.unsplash.com'],
-          connectSrc: [
-            "'self'",
-            'https://identitytoolkit.googleapis.com',
-            'https://securetoken.googleapis.com',
-            'https://www.googleapis.com',
-          ],
-          frameSrc: ["'self'", 'https://*.firebaseapp.com', 'https://*.web.app', 'https://accounts.google.com'],
-          workerSrc: ["'self'"],
-          manifestSrc: ["'self'"],
-        },
-      },
+      // Règles communes avec la version Vercel : server/security-policy.js.
+      contentSecurityPolicy: { directives: CSP_DIRECTIVES },
+      crossOriginOpenerPolicy: { policy: OPENER_POLICY },
     })
   );
   app.use(express.json({ limit: '4mb' }));
@@ -43,12 +31,16 @@ export const createApp = () => {
 
   /* ---------- API ---------- */
   app.use('/api', requireClientHeader, loadUser);
+  // Commandes non payées depuis 2 h : annulées et stock remis en vente (au plus une vérification par minute).
+  app.use('/api', sweepUnpaidOrders);
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
   app.get('/api/config', (_req, res) =>
     res.json({ demoMode: config.demoMode, paymentProvider: config.paymentProvider })
   );
   app.use('/api/auth', authRouter);
   app.use('/api/me', requireAuth, meRouter);
+  app.use('/api/seller/assistant', requireAuth, assistantRouter);
+  app.use('/api/admin', requireAuth, adminRouter);
   app.use('/api', catalogRouter);
   app.use('/api', ordersRouter); // chaque route exige une session (currentUser)
   app.use('/api', (_req, res) => {

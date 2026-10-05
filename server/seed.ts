@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { hashPassword } from './auth.ts';
 import { db, transaction, type Row } from './db.ts';
+import { settleOrder } from './transactions.ts';
 import { INITIAL_ORDERS, INITIAL_PRODUCTS, INITIAL_SHOPS, INITIAL_USER } from './seed-data.ts';
 
 const SAMPLE_REVIEWS = [
@@ -129,6 +130,8 @@ export const seedIfEmpty = () => {
       for (const e of events) {
         db.prepare('INSERT INTO order_events (order_id, status, created_at) VALUES (?, ?, ?)').run(o.id, e.status, e.at);
       }
+      // Commandes de démonstration : commission de 5 % et journal, comme une commande réelle.
+      settleOrder(o.id, 'reprise');
     }
   });
 

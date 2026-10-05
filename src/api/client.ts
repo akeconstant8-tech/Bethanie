@@ -1,5 +1,7 @@
 import type {
   ApiConfig,
+  AssistantProposal,
+  TransactionReport,
   CheckoutPayload,
   Me,
   Order,
@@ -59,6 +61,11 @@ export const api = {
   googleSignIn: (idToken: string) =>
     request<{ user: Me }>('POST', '/auth/google', { idToken }).then((r) => r.user),
   logout: () => request<void>('POST', '/auth/logout'),
+  /** Administration : commissions de Béthanie et contrôle des transactions. */
+  adminTransactions: () => request<{ report: TransactionReport }>('GET', '/admin/transactions').then((r) => r.report),
+  /** Assistant vendeur (IA) : historique de la conversation → réponse et propositions à confirmer. */
+  sellerAssistant: (messages: { role: 'user' | 'assistant'; text: string }[], lang: 'fr' | 'en') =>
+    request<{ reply: string; proposals: AssistantProposal[] }>('POST', '/seller/assistant', { messages, lang }),
   updateProfile: (data: { name: string; email: string; phone: string; location: string }) =>
     request<{ user: Me }>('PATCH', '/me', data).then((r) => r.user),
   addAddress: (data: { title: string; address: string }) =>

@@ -2,7 +2,17 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { NavigateParams, Product, Review, ScreenType } from '../types';
 import { api, errorMessage } from '../api/client';
 import { ProductCard, badgeColor } from '../components/ProductCard';
-import { QuantityStepper, SectionHeader, Skeleton, Stars, btnGold, btnPrimary, cardClass, inputClass } from '../components/ui';
+import {
+  HeartBurst,
+  QuantityStepper,
+  SectionHeader,
+  Skeleton,
+  Stars,
+  btnGold,
+  btnPrimary,
+  cardClass,
+  inputClass,
+} from '../components/ui';
 import { useI18n } from '../i18n';
 import { formatPrice } from '../utils/commerce';
 import { SHARED_PHOTO, flyToCart, isOnScreen, supportsViewTransitions } from '../utils/motion';
@@ -63,6 +73,10 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
   const tabsRef = useRef<HTMLElement>(null);
   const sizesRef = useRef<HTMLDivElement>(null);
   const mainPhoto = useRef<HTMLImageElement>(null);
+  // Bouton « Ajouter au panier » qui devient « Ajouté ! » pendant un instant.
+  const [justAdded, setJustAdded] = useState(false);
+  const addedTimer = useRef<number>(undefined);
+  useEffect(() => () => window.clearTimeout(addedTimer.current), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +122,9 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
   const addToCart = (event: React.MouseEvent<HTMLElement>) => {
     if (!validate()) return;
     onAddToCart(product, quantity, color, size);
+    setJustAdded(true);
+    window.clearTimeout(addedTimer.current);
+    addedTimer.current = window.setTimeout(() => setJustAdded(false), 1600);
     // La photo s'envole vers le panier ; si elle n'est plus à l'écran, la vignette part du bouton.
     const photo = mainPhoto.current;
     flyToCart(gallery[0] ?? product.image, photo && isOnScreen(photo) ? photo : event.currentTarget);
@@ -188,10 +205,11 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
                       if (!isFavorite) setHeartPops((n) => n + 1);
                       onToggleWishlist(product.id);
                     }}
-                    className={overlayButton}
+                    className={`relative ${overlayButton}`}
                     aria-label={isFavorite ? t('common.removeFromFavorites') : t('common.addToFavorites')}
                     aria-pressed={isFavorite}
                   >
+                    {isFavorite && heartPops > 0 && <HeartBurst key={heartPops} />}
                     <i
                       key={heartPops}
                       className={`${isFavorite ? 'fa-solid text-red-500' : 'fa-regular'} fa-heart ${heartPops > 0 ? 'animate-pop' : ''}`}
@@ -333,9 +351,13 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
 
             {/* Boutons (ordinateur) — sur mobile, ils sont dans la barre fixée en bas */}
             <div className="hidden lg:flex gap-3 pt-1">
-              <button onClick={addToCart} disabled={outOfStock} className={`${btnPrimary} flex-1 h-12`}>
-                <i className="fa-solid fa-cart-plus"></i>
-                {t('product.addToCart')}
+              <button
+                onClick={addToCart}
+                disabled={outOfStock}
+                className={`${btnPrimary} flex-1 h-12 ${justAdded ? 'bg-emerald-600! hover:bg-emerald-600!' : ''}`}
+              >
+                <i key={justAdded ? 'ok' : 'add'} className={`fa-solid ${justAdded ? 'fa-check animate-pop' : 'fa-cart-plus'}`}></i>
+                {justAdded ? t('product.added') : t('product.addToCart')}
               </button>
               <button onClick={buyNow} disabled={outOfStock} className={`${btnGold} flex-1 h-12`}>
                 {t('product.buyNow')}
@@ -561,9 +583,18 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
         <button
           onClick={addToCart}
           disabled={outOfStock}
-          className={`${btnPrimary} flex-1 min-w-0 h-12 px-2 text-[13px] min-[400px]:text-sm leading-tight text-center`}
+          className={`${btnPrimary} flex-1 min-w-0 h-12 px-2 text-[13px] min-[400px]:text-sm leading-tight text-center ${
+            justAdded ? 'bg-emerald-600! hover:bg-emerald-600!' : ''
+          }`}
         >
-          {t('product.addToCart')}
+          {justAdded ? (
+            <>
+              <i className="fa-solid fa-check animate-pop"></i>
+              {t('product.added')}
+            </>
+          ) : (
+            t('product.addToCart')
+          )}
         </button>
         <button
           onClick={buyNow}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigateParams, Order, Product, ScreenType } from '../types';
 import { EmptyState, HeaderIconButton, MobileHeader, PageTitle, StatusPill, btnOutline, btnPrimary, cardClass } from '../components/ui';
 import { TranslationKey, useI18n } from '../i18n';
@@ -97,6 +97,7 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
   const paymentPending = order.paymentStatus === 'en_attente';
   const canAdvance = demoMode && !paymentPending && nextStatus(order.status) !== null;
   const delivered = order.status === 'livrée';
+  const cancelled = order.status === 'annulée';
 
   return (
     <div className="pb-6 lg:pb-12">
@@ -167,6 +168,8 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
                 <StatusPill status={order.status} />
               </div>
 
+              {!cancelled && <DeliveryRoute steps={order.steps} delivered={delivered} />}
+
               <ol className="relative stagger">
                 {order.steps.map((step, i) => {
                   const current = step.current && !delivered;
@@ -177,7 +180,7 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
                     <li key={step.step} className="flex gap-3.5">
                       <div className="flex flex-col items-center">
                         <span
-                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0 ${
+                          className={`relative w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0 ${
                             done
                               ? 'bg-brand-900 text-white'
                               : current
@@ -185,10 +188,20 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
                               : 'bg-slate-200 text-white'
                           }`}
                         >
-                          {current ? <span className="w-2 h-2 rounded-full bg-white animate-pulse"></span> : <i className="fa-solid fa-check"></i>}
+                          {current ? (
+                            <>
+                              <span className="ping-soft absolute inset-0 rounded-full bg-brand-900" aria-hidden="true"></span>
+                              <span className="relative w-2 h-2 rounded-full bg-white"></span>
+                            </>
+                          ) : (
+                            <i className="fa-solid fa-check"></i>
+                          )}
                         </span>
                         {i < order.steps.length - 1 && (
-                          <span className={`w-0.5 flex-1 min-h-7 my-1 rounded-full ${nextDone ? 'bg-brand-900' : 'bg-slate-200'}`}></span>
+                          <span
+                            className={`w-0.5 flex-1 min-h-7 my-1 rounded-full ${nextDone ? 'bg-brand-900 grow-y' : 'bg-slate-200'}`}
+                            style={{ '--delay': `${200 + i * 140}ms` } as React.CSSProperties}
+                          ></span>
                         )}
                       </div>
                       <div className="pb-5 -mt-0.5">
@@ -223,8 +236,8 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
                   </button>
                 </div>
               ) : (
-                <p className="flex gap-3 bg-brand-50 text-brand-900 rounded-2xl p-4 text-sm">
-                  <i className={`fa-solid ${delivered ? 'fa-circle-check' : 'fa-circle-info'} mt-0.5`}></i>
+                <p className={`flex gap-3 rounded-2xl p-4 text-sm ${cancelled ? 'bg-slate-100 text-slate-700' : 'bg-brand-50 text-brand-900'}`}>
+                  <i className={`fa-solid ${cancelled ? 'fa-ban' : delivered ? 'fa-circle-check' : 'fa-circle-info'} mt-0.5`}></i>
                   <span>{t(`tracking.msg.${order.status}` as TranslationKey)}</span>
                 </p>
               )}
@@ -366,6 +379,57 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
               </section>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Trajet de la commande : de la boutique à la maison, le camion avance jusqu'à l'étape en cours
+ * (au chargement, puis à chaque nouvelle étape). Purement visuel : la liste des étapes reste la référence.
+ */
+const DeliveryRoute: React.FC<{ steps: Order['steps']; delivered: boolean }> = ({ steps, delivered }) => {
+  const reached = steps.reduce((last, step, i) => (step.completed ? i : last), 0);
+  const progress = delivered ? 1 : reached / Math.max(1, steps.length - 1);
+  // Départ à 0 puis animation jusqu'à la position réelle.
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setShown(progress));
+    return () => cancelAnimationFrame(frame);
+  }, [progress]);
+
+  const endpoint = 'absolute top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center text-xs';
+  return (
+    <div className="relative h-12 mb-5" aria-hidden="true">
+      <span className={`${endpoint} left-0 bg-brand-50 text-brand-900`}>
+        <i className="fa-solid fa-store"></i>
+      </span>
+      <span
+        className={`${endpoint} right-0 transition-colors duration-500 ${
+          delivered ? 'bg-brand-900 text-white animate-pop' : 'bg-slate-100 text-slate-400'
+        }`}
+      >
+        <i className="fa-solid fa-house"></i>
+      </span>
+      <div className="absolute left-10 right-10 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+        <div
+          className="h-full rounded-full bg-linear-to-r from-brand-700 to-gold-500 origin-left transition-transform duration-1200 ease-out-soft"
+          style={{ transform: `scaleX(${shown})` }}
+        ></div>
+      </div>
+      {/* La piste fait toute la largeur : la décaler de X % la fait avancer de X % du trajet. */}
+      <div className="absolute left-10 right-10 inset-y-0 pointer-events-none">
+        <div className="h-full transition-transform duration-1200 ease-out-soft" style={{ transform: `translateX(${shown * 100}%)` }}>
+          <span className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2">
+            <span
+              className={`flex w-9 h-9 rounded-full bg-white shadow-lift ring-2 ring-brand-900/10 text-brand-900 items-center justify-center ${
+                delivered ? '' : 'truck-bob'
+              }`}
+            >
+              <i className="fa-solid fa-truck-fast text-sm"></i>
+            </span>
+          </span>
         </div>
       </div>
     </div>

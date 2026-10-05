@@ -174,6 +174,37 @@ if (!userColumns.some((column) => column.name === 'firebase_uid')) {
 }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid)');
 
+/* Contrôle des transactions et commission de Béthanie (RG-09, voir transactions.ts). */
+db.exec(`
+  -- Répartition de chaque commande par boutique : commission de Béthanie et part du vendeur.
+  CREATE TABLE IF NOT EXISTS order_settlements (
+    order_id            TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    shop_id             TEXT NOT NULL,
+    gross               INTEGER NOT NULL CHECK (gross >= 0),
+    commission_rate_bp  INTEGER NOT NULL CHECK (commission_rate_bp >= 0),
+    commission          INTEGER NOT NULL CHECK (commission >= 0),
+    seller_net          INTEGER NOT NULL CHECK (seller_net >= 0),
+    status              TEXT NOT NULL DEFAULT 'prévue' CHECK (status IN ('prévue', 'acquise', 'annulée')),
+    created_at          TEXT NOT NULL DEFAULT ${NOW},
+    PRIMARY KEY (order_id, shop_id)
+  );
+
+  -- Journal scellé : chaque ligne contient l'empreinte de la précédente (toute modification est détectable).
+  CREATE TABLE IF NOT EXISTS transaction_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    at          TEXT NOT NULL,
+    order_id    TEXT,
+    event       TEXT NOT NULL,
+    amount      INTEGER NOT NULL DEFAULT 0,
+    commission  INTEGER NOT NULL DEFAULT 0,
+    details     TEXT NOT NULL DEFAULT '{}',
+    prev_hash   TEXT NOT NULL,
+    hash        TEXT NOT NULL,
+    seal        TEXT NOT NULL DEFAULT 'h' CHECK (seal IN ('h', 'm'))  -- h : empreinte simple ; m : HMAC (TRANSACTIONS_SECRET)
+  );
+  CREATE INDEX IF NOT EXISTS idx_transaction_log_order ON transaction_log(order_id);
+`);
+
 /** Exécute `fn` dans une transaction SQLite (tout ou rien). */
 export const transaction = <T>(fn: () => T): T => {
   db.exec('BEGIN IMMEDIATE');

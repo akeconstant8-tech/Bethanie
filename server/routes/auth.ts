@@ -2,16 +2,15 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { cert, getApps, initializeApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
 import { createSession, destroySession, hashPassword } from '../auth.ts';
 import { db, transaction, type Row } from '../db.ts';
+import { describeFirebaseStatus, verifyGoogleIdToken } from '../firebase.ts';
 import { HttpError, conflict, parse } from '../http.ts';
 import { loadMe } from '../serializers.ts';
 
 export const authRouter = Router();
 
-// Limite les tentatives pour freiner le devinage de mots de passe.
+// Limite les tentatives de connexion (robots, abus).
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
@@ -23,40 +22,47 @@ const limiter = rateLimit({
 const email = z.string().trim().toLowerCase().email('Adresse e-mail invalide.').max(120);
 const GoogleSchema = z.object({ idToken: z.string().min(100).max(10_000) });
 
-const getFirebaseAuth = () => {
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new HttpError(503, 'La connexion Google n’est pas configurée sur le serveur.');
-  }
+const adminEmails = () =>
+  (process.env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean);
 
-  const app =
-    getApps().find((candidate) => candidate.name === 'bethanie-auth') ??
-    initializeApp(
-      {
-        credential: cert({ projectId, clientEmail, privateKey: privateKey.replace(/\\n/g, '\n') }),
-        projectId,
-      },
-      'bethanie-auth'
-    );
-  return getAuth(app);
-};
+// Au démarrage : état de la connexion Google dans les journaux (noms des variables manquantes, jamais leurs valeurs).
+console.log(`[api] ${describeFirebaseStatus()}`);
+
+/**
+ * Retrouve le compte Béthanie d'un utilisateur Google, ou le crée :
+ *  1. compte déjà lié à cet identifiant Google (uid Firebase) ;
+ *  2. sinon, compte existant avec la même adresse e-mail : on le lie à Google ;
+ *  3. sinon, nouveau compte (nom Google, ville par défaut Abidjan).
+ */
+export const linkGoogleAccount = (profile: { uid: string; email: string; name?: string }) =>
+  transaction(() => {
+    const linkedUser = db.prepare('SELECT id FROM users WHERE firebase_uid = ?').get(profile.uid) as Row | undefined;
+    if (linkedUser) return String(linkedUser.id);
+
+    const existingUser = db.prepare('SELECT id, firebase_uid FROM users WHERE email = ?').get(profile.email) as Row | undefined;
+    if (existingUser) {
+      if (existingUser.firebase_uid && existingUser.firebase_uid !== profile.uid) {
+        throw conflict('Cette adresse e-mail est déjà liée à un autre compte Google.');
+      }
+      db.prepare('UPDATE users SET firebase_uid = ? WHERE id = ?').run(profile.uid, String(existingUser.id));
+      return String(existingUser.id);
+    }
+
+    const id = crypto.randomUUID();
+    const name = profile.name?.trim().slice(0, 80) || profile.email.split('@')[0].slice(0, 80);
+    db.prepare(
+      `INSERT INTO users (id, name, email, phone, password_hash, location, firebase_uid)
+       VALUES (?, ?, ?, '', ?, ?, ?)`
+    ).run(id, name, profile.email, hashPassword(crypto.randomBytes(32).toString('base64url')), "Abidjan, Côte d'Ivoire", profile.uid);
+    return id;
+  });
 
 authRouter.post('/google', limiter, async (req, res) => {
   const { idToken } = parse(GoogleSchema, req.body);
-  const decoded = await getFirebaseAuth().verifyIdToken(idToken, true).catch((error: unknown) => {
-    const code =
-      typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
-    if (
-      ['auth/argument-error', 'auth/invalid-id-token', 'auth/id-token-expired', 'auth/id-token-revoked', 'auth/user-disabled'].includes(
-        code
-      )
-    ) {
-      throw new HttpError(401, 'La session Google a expiré. Reconnectez-vous.');
-    }
-    throw error;
-  });
+  const decoded = await verifyGoogleIdToken(idToken);
   if (
     decoded.firebase?.sign_in_provider !== 'google.com' ||
     decoded.email_verified !== true ||
@@ -65,39 +71,16 @@ authRouter.post('/google', limiter, async (req, res) => {
     throw new HttpError(401, 'Connectez-vous avec une adresse Google vérifiée.');
   }
 
-  const normalizedEmail = email.parse(decoded.email);
-  const userId = transaction(() => {
-    const linkedUser = db.prepare('SELECT id FROM users WHERE firebase_uid = ?').get(decoded.uid) as Row | undefined;
-    if (linkedUser) return String(linkedUser.id);
-
-    const existingUser = db
-      .prepare('SELECT id, firebase_uid FROM users WHERE email = ?')
-      .get(normalizedEmail) as Row | undefined;
-    if (existingUser) {
-      if (existingUser.firebase_uid && existingUser.firebase_uid !== decoded.uid) {
-        throw conflict('Cette adresse e-mail est déjà liée à un autre compte Google.');
-      }
-      db.prepare('UPDATE users SET firebase_uid = ? WHERE id = ?').run(decoded.uid, String(existingUser.id));
-      return String(existingUser.id);
-    }
-
-    const id = crypto.randomUUID();
-    const displayName = typeof decoded.name === 'string' ? decoded.name.trim().slice(0, 80) : '';
-    const name = displayName || normalizedEmail.split('@')[0].slice(0, 80);
-    db.prepare(
-      `INSERT INTO users (id, name, email, phone, password_hash, location, firebase_uid)
-       VALUES (?, ?, ?, '', ?, ?, ?)`
-    ).run(
-      id,
-      name,
-      normalizedEmail,
-      hashPassword(crypto.randomBytes(32).toString('base64url')),
-      "Abidjan, Côte d'Ivoire",
-      decoded.uid
-    );
-    return id;
+  const verifiedEmail = email.parse(decoded.email);
+  const userId = linkGoogleAccount({
+    uid: decoded.uid,
+    email: verifiedEmail,
+    name: typeof decoded.name === 'string' ? decoded.name : undefined,
   });
-
+  // Administration : adresses Google vérifiées listées dans ADMIN_EMAILS (séparées par des virgules).
+  if (adminEmails().includes(verifiedEmail)) {
+    db.prepare(`UPDATE users SET role = 'admin' WHERE id = ? AND role <> 'admin'`).run(userId);
+  }
   createSession(res, userId);
   res.json({ user: loadMe(userId) });
 });

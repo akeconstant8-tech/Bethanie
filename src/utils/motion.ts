@@ -1,4 +1,5 @@
 import type React from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { prefersReducedMotion } from '../pwa/pwa';
 
 /* ------------------------------------------------------------------ */
@@ -149,4 +150,136 @@ export const tiltHandlers = {
   onPointerLeave: (event: React.PointerEvent<HTMLElement>) => {
     TILT_PROPERTIES.forEach((name) => event.currentTarget.style.removeProperty(name));
   },
+};
+
+/* ------------------------------------------------------------------ */
+/* Préférence « Animations » (Profil) : auto, toujours, réduites       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * auto : suit le réglage de l'appareil (prefers-reduced-motion) ; on : animations même si l'appareil demande moins
+ * d'animations (Windows « Effets d'animation » désactivés…) ; off : animations réduites. Posée sur <html data-motion>,
+ * lue par index.css et par prefersReducedMotion().
+ */
+export type MotionPreference = 'auto' | 'on' | 'off';
+
+const MOTION_KEY = 'bethanie.motion';
+const motionListeners = new Set<() => void>();
+let motionPreference: MotionPreference = 'auto';
+
+const applyMotionPreference = (preference: MotionPreference) => {
+  motionPreference = preference;
+  if (preference === 'auto') delete document.documentElement.dataset.motion;
+  else document.documentElement.dataset.motion = preference;
+};
+
+/** À appeler une fois, avant le premier rendu (main.tsx). */
+export const initMotionPreference = () => {
+  let stored: unknown = 'auto';
+  try {
+    stored = JSON.parse(window.localStorage.getItem(MOTION_KEY) ?? '"auto"');
+  } catch {
+    // stockage indisponible : réglage de l'appareil
+  }
+  applyMotionPreference(stored === 'on' || stored === 'off' ? stored : 'auto');
+};
+
+export const setMotionPreference = (preference: MotionPreference) => {
+  applyMotionPreference(preference);
+  try {
+    window.localStorage.setItem(MOTION_KEY, JSON.stringify(preference));
+  } catch {
+    // le choix vaut au moins pour cette visite
+  }
+  motionListeners.forEach((listener) => listener());
+};
+
+export const useMotionPreference = () =>
+  useSyncExternalStore(
+    (listener) => {
+      motionListeners.add(listener);
+      return () => motionListeners.delete(listener);
+    },
+    () => motionPreference
+  );
+
+/* ------------------------------------------------------------------ */
+/* Onde au toucher sur les boutons (classe « ripple »)                 */
+/* ------------------------------------------------------------------ */
+
+/** Un seul écouteur pour toute l'application : une onde part du point touché sur tout élément `.ripple`. */
+export const initRipples = () => {
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      const host = (event.target as Element | null)?.closest?.<HTMLElement>('.ripple');
+      if (!host || host.matches(':disabled') || prefersReducedMotion()) return;
+      const rect = host.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height) * 2.2;
+      const wave = document.createElement('span');
+      wave.className = 'ripple-wave';
+      wave.setAttribute('aria-hidden', 'true');
+      wave.style.cssText = `width:${size}px;height:${size}px;left:${event.clientX - rect.left - size / 2}px;top:${event.clientY - rect.top - size / 2}px`;
+      host.appendChild(wave);
+      wave.addEventListener('animationend', () => wave.remove(), { once: true });
+      window.setTimeout(() => wave.remove(), 1000);
+    },
+    { passive: true }
+  );
+};
+
+/* ------------------------------------------------------------------ */
+/* Champ de recherche qui « tape » des exemples                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Fait défiler des exemples de recherche dans le texte d'aide du champ (« Essayez « sac en cuir » »), lettre par
+ * lettre. Le texte d'aide est modifié directement (aucun rendu React), et seulement quand le champ est vide et
+ * inactif. `examples` : exemples séparés par « | » ; `template` : texte contenant « {q} ».
+ */
+export const useTypewriterPlaceholder = (
+  input: React.RefObject<HTMLInputElement | null>,
+  base: string,
+  examples: string,
+  template: string
+) => {
+  useEffect(() => {
+    const field = input.current;
+    if (!field) return;
+    field.placeholder = base;
+    const words = examples.split('|').map((w) => w.trim()).filter(Boolean);
+    if (words.length === 0 || prefersReducedMotion()) return;
+
+    let index = 0;
+    let length = 0;
+    let erasing = false;
+    let timer = 0;
+    const tick = () => {
+      if (document.activeElement === field || field.value) {
+        field.placeholder = base;
+        length = 0;
+        erasing = false;
+        timer = window.setTimeout(tick, 1500);
+        return;
+      }
+      const word = words[index % words.length];
+      length += erasing ? -1 : 1;
+      field.placeholder = length > 0 ? template.replace('{q}', word.slice(0, length)) : base;
+      let delay = erasing ? 35 : 75;
+      if (!erasing && length >= word.length) {
+        erasing = true;
+        delay = 1700;
+      } else if (erasing && length <= 0) {
+        erasing = false;
+        index += 1;
+        delay = 900;
+      }
+      timer = window.setTimeout(tick, delay);
+    };
+    timer = window.setTimeout(tick, 2200);
+    return () => {
+      window.clearTimeout(timer);
+      field.placeholder = base;
+    };
+  }, [input, base, examples, template]);
 };

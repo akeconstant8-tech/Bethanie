@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { build } from 'esbuild';
+import { SITE_SECURITY_HEADERS } from '../server/security-policy.js';
 
 const root = path.resolve(import.meta.dirname, '..');
 const dist = path.join(root, 'dist');
@@ -22,6 +23,16 @@ if (!fs.existsSync(path.join(dist, 'index.html'))) {
 }
 
 fs.rmSync(output, { recursive: true, force: true });
+
+// En local, mêmes variables que Vite et le serveur ; sur Vercel, elles viennent des réglages du projet.
+const envFile = path.join(root, '.env.local');
+if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
+const firebaseProjectId = (process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || '').trim();
+console.log(
+  firebaseProjectId
+    ? `✓ Connexion Google : projet Firebase « ${firebaseProjectId} » transmis au serveur`
+    : '⚠ Connexion Google : ni FIREBASE_PROJECT_ID ni VITE_FIREBASE_PROJECT_ID dans les variables de construction'
+);
 
 // 1. Site statique
 fs.cpSync(dist, path.join(output, 'static'), { recursive: true });
@@ -45,18 +56,23 @@ await build({
       // Seul /tmp est modifiable sur Vercel ; le site est servi en HTTPS.
       "process.env.DATA_DIR ??= '/tmp/bethanie';",
       "process.env.COOKIE_SECURE ??= 'true';",
+      // Connexion Google : le serveur vérifie les jetons avec l'identifiant du projet Firebase (public). Il est repris
+      // des variables de la construction (les mêmes que le site), pour ne jamais manquer à l'exécution.
+      ...(firebaseProjectId ? [`process.env.FIREBASE_PROJECT_ID ??= ${JSON.stringify(firebaseProjectId)};`] : []),
     ].join('\n'),
   },
 });
 fs.writeFileSync(
   path.join(fn, '.vc-config.json'),
-  JSON.stringify({ runtime: 'nodejs22.x', handler: 'index.mjs', launcherType: 'Nodejs', shouldAddHelpers: false }, null, 2)
+  JSON.stringify({ runtime: 'nodejs22.x', handler: 'index.mjs', launcherType: 'Nodejs', shouldAddHelpers: false, maxDuration: 60 }, null, 2)
 );
 
 // 3. Règles de routage et en-têtes de cache (mêmes règles qu'avec « npm start »)
 const config = {
   version: 3,
   routes: [
+    // En-têtes de sécurité des pages et fichiers du site (l'API a les siens) : server/security-policy.js.
+    { src: '^/(?!api/|uploads/).*$', headers: SITE_SECURITY_HEADERS, continue: true },
     { src: '^/assets/(.*)$', headers: { 'cache-control': 'public, max-age=31536000, immutable' }, continue: true },
     { src: '^/(sw\\.js|manifest\\.webmanifest|index\\.html)?$', headers: { 'cache-control': 'no-cache' }, continue: true },
     { handle: 'filesystem' },

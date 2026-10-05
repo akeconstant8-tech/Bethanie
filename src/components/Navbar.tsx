@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavigateParams, ScreenType } from '../types';
 import { useI18n } from '../i18n';
 import { CITIES } from '../utils/commerce';
+import { useTypewriterPlaceholder } from '../utils/motion';
 import { BethanieLogo } from './BethanieLogo';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
@@ -34,6 +35,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const { t, cityLabel } = useI18n();
   const [localSearch, setLocalSearch] = useState(searchQuery);
+  const searchField = useRef<HTMLInputElement>(null);
+  useTypewriterPlaceholder(searchField, t('common.searchPlaceholder'), t('search.examples'), t('search.try'));
 
   // Garde le champ aligné quand la recherche est effacée ailleurs (catalogue, catégories).
   useEffect(() => setLocalSearch(searchQuery), [searchQuery]);
@@ -82,6 +85,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="flex items-center bg-white rounded-full pl-4 pr-1 h-11 shadow-sm focus-within:ring-2 focus-within:ring-gold-400">
               <i className="fa-solid fa-magnifying-glass text-slate-400"></i>
               <input
+                ref={searchField}
                 type="search"
                 value={localSearch}
                 onChange={(e) => setLocalSearch(e.target.value)}

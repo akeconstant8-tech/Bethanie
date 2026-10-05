@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Product } from '../types';
 import { useI18n } from '../i18n';
 import { formatPrice } from '../utils/commerce';
+import { HeartBurst } from './ui';
 import { flyToCart, isOnScreen, markSharedPhoto, tiltHandlers } from '../utils/motion';
 
 interface ProductCardProps {
@@ -85,6 +86,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFavorite, o
           aria-label={isFavorite ? t('common.removeFromFavorites') : t('common.addToFavorites')}
           aria-pressed={isFavorite}
         >
+          {isFavorite && heartPops > 0 && <HeartBurst key={heartPops} />}
           <i
             key={heartPops}
             className={`${isFavorite ? 'fa-solid text-red-500' : 'fa-regular text-slate-600'} fa-heart text-sm ${

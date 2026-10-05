@@ -1,7 +1,7 @@
 # Cahier des charges — Béthanie
 
 > Marketplace africaine « Achetez • Vendez • Bénissez »
-> Version 1.7 — 5 octobre 2026 — document de travail, à valider par le porteur de projet
+> Version 1.10 — 5 octobre 2026 — document de travail, à valider par le porteur de projet
 
 | Version | Date | Changements |
 |---|---|---|
@@ -13,6 +13,9 @@
 | 1.5 | 3 octobre 2026 | Motion design renforcé (MOT-11 à MOT-16) ; réglage « Effets d’animation » de Windows expliqué ; recette R27 à R31 |
 | 1.6 | 5 octobre 2026 | Définition fonctionnelle d’un assistant vendeur et de ses compétences (AGV-01 à AGV-07) ; intégration technique hors périmètre de cette version |
 | 1.7 | 5 octobre 2026 | Connexion et création de compte Google via Firebase Authentication ; retrait du parcours e-mail/mot de passe ; données métier conservées dans SQLite |
+| 1.8 | 5 octobre 2026 | Assistant vendeur réalisé (AGV-01 à AGV-07, à valider avec une clé Claude) ; master class motion design (MOT-17 à MOT-22) ; vérification Google simplifiée ; recette R32 à R38 |
+| 1.9 | 5 octobre 2026 | Commission de 5 % calculée, contrôlée et journalisée à chaque transaction (RG-09 validée, 4.14, TRX-01 à TRX-07) ; audit de sécurité (`docs/AUDIT_SECURITE.md`) ; agent de sécurité ; recette R39 à R44 |
+| 1.10 | 5 octobre 2026 | Commandes non payées annulées après 2 heures et limite de 10 commandes par heure (TRX-08, TRX-09) ; statut « Annulée » ; codes promo conservés illimités (décision) ; connexion Google configurée côté serveur, un seul bouton « Continuer avec Google » ; logo et devise à la place de la ville dans l’en-tête mobile de l’accueil |
 
 **Légende des statuts** : ✅ réalisé · 🟡 partiel ou dépend d’une configuration externe · ⬜ à faire
 **Priorités** : **P1** indispensable au lancement · **P2** important · **P3** souhaitable
@@ -182,7 +185,7 @@ le site doit donc être pensé d’abord pour le mobile et pour ces moyens de pa
 | VEN-07 | Plusieurs photos et variantes de couleur par produit | P2 | 🟡 3 photos ✅ ; variantes de couleur à faire |
 | VEN-09 | Statistiques : commandes par étape, meilleures ventes, panier moyen, commission et net à recevoir | P2 | ✅ (calculées sur les commandes reçues) |
 | VEN-10 | Évolution des indicateurs dans le temps (« +20 % » de la maquette) | P3 | ⬜ nécessite un historique daté des ventes |
-| VEN-08 | Reversements au vendeur sur son Mobile Money, relevé des ventes et commissions | P1 | ⬜ |
+| VEN-08 | Reversements au vendeur sur son Mobile Money, relevé des ventes et commissions | P1 | 🟡 part vendeur calculée et contrôlée à chaque commande (TRX-01) ; reversement réel avec le lot 3 |
 
 ### 4.7 Administration (ADM)
 
@@ -279,6 +282,12 @@ toutes désactivées quand le téléphone ou l’ordinateur demande de réduire 
 | MOT-14 | Indicateurs qui glissent : onglet actif de la barre du bas, sélecteur de l’espace vendeur | P3 | ✅ |
 | MOT-15 | Cartes produit inclinées en 3D au survol de la souris, avec reflet lumineux (ordinateur uniquement) | P3 | ✅ |
 | MOT-16 | Paiement accepté : coche dessinée et confettis ; total du panier qui défile quand une quantité change | P3 | ✅ |
+| MOT-17 | Réglage « Animations » dans le Profil : Automatique (réglage de l’appareil), Toujours activées, Réduites | P1 | ✅ |
+| MOT-18 | Onde au toucher sur les boutons principaux | P3 | ✅ |
+| MOT-19 | Favori : anneau et éclats autour du cœur | P3 | ✅ |
+| MOT-20 | Champ de recherche qui propose des exemples en les « tapant » | P3 | ✅ |
+| MOT-21 | Suivi de commande : camion qui roule jusqu’à l’étape en cours, étape en cours qui « émet » | P2 | ✅ |
+| MOT-22 | Bouton « Ajouter au panier » de la fiche qui devient « Ajouté ! » ; panneaux toujours au-dessus de la barre d’onglets | P2 | ✅ |
 
 > **Réduire les animations** : sous Windows, ce réglage est activé quand **Paramètres › Accessibilité › Effets
 > visuels › Effets d’animation** est désactivé. Le navigateur le transmet au site, qui coupe alors toutes les
@@ -293,13 +302,27 @@ ni choix d’intégration technique n’est défini à ce stade.
 
 | ID | Exigence | Priorité | Statut |
 |---|---|---|---|
-| AGV-01 | L’assistant aide le vendeur à préparer et gérer les tâches de sa propre boutique ; il ne remplace pas le vendeur et n’agit jamais sans validation explicite | P1 | ⬜ |
-| AGV-02 | Compétence « Rédiger une fiche produit » : proposer un brouillon structuré à partir des informations fournies, sans inventer de caractéristiques ; le vendeur relit et publie lui-même | P1 | ⬜ |
-| AGV-03 | Compétence « Suivre le stock » : expliquer les niveaux de stock et repérer les produits signalés comme faibles ; toute modification reste soumise à confirmation | P1 | ⬜ |
-| AGV-04 | Compétence « Traiter les commandes » : résumer les commandes de la boutique, expliquer leur statut et guider vers l’étape disponible ; toute avancée de statut reste confirmée par le vendeur et soumise aux règles existantes | P1 | ⬜ |
-| AGV-05 | Compétence « Comprendre l’activité » : résumer les indicateurs vendeur disponibles, sans présenter comme certaines des tendances que les données ne permettent pas d’établir | P2 | ⬜ |
-| AGV-06 | Compétence « Être guidé dans l’espace vendeur » : expliquer les fonctions existantes et orienter vers le bon écran ; signaler les sujets non couverts plutôt que d’inventer une règle | P2 | ⬜ |
-| AGV-07 | L’assistant répond en français et en anglais, respecte l’accès du vendeur à ses seules données et n’exécute aucune action irréversible sans confirmation | P1 | ⬜ |
+| AGV-01 | L’assistant aide le vendeur à préparer et gérer les tâches de sa propre boutique ; il ne remplace pas le vendeur et n’agit jamais sans validation explicite | P1 | 🟡 réalisé, à valider avec une clé Claude (AGV-R1 à R8) |
+| AGV-02 | Compétence « Rédiger une fiche produit » : proposer un brouillon structuré à partir des informations fournies, sans inventer de caractéristiques ; le vendeur relit et publie lui-même | P1 | 🟡 réalisé, à valider avec une clé Claude (AGV-R1 à R8) |
+| AGV-03 | Compétence « Suivre le stock » : expliquer les niveaux de stock et repérer les produits signalés comme faibles ; toute modification reste soumise à confirmation | P1 | 🟡 réalisé, à valider avec une clé Claude (AGV-R1 à R8) |
+| AGV-04 | Compétence « Traiter les commandes » : résumer les commandes de la boutique, expliquer leur statut et guider vers l’étape disponible ; toute avancée de statut reste confirmée par le vendeur et soumise aux règles existantes | P1 | 🟡 réalisé, à valider avec une clé Claude (AGV-R1 à R8) |
+| AGV-05 | Compétence « Comprendre l’activité » : résumer les indicateurs vendeur disponibles, sans présenter comme certaines des tendances que les données ne permettent pas d’établir | P2 | 🟡 réalisé, à valider avec une clé Claude (AGV-R1 à R8) |
+| AGV-06 | Compétence « Être guidé dans l’espace vendeur » : expliquer les fonctions existantes et orienter vers le bon écran ; signaler les sujets non couverts plutôt que d’inventer une règle | P2 | 🟡 réalisé, à valider avec une clé Claude (AGV-R1 à R8) |
+| AGV-07 | L’assistant répond en français et en anglais, respecte l’accès du vendeur à ses seules données et n’exécute aucune action irréversible sans confirmation | P1 | 🟡 réalisé, à valider avec une clé Claude (AGV-R1 à R8) |
+
+### 4.14 Contrôle des transactions et commission (TRX)
+
+| ID | Exigence | Priorité | Statut |
+|---|---|---|---|
+| TRX-01 | À chaque commande, calcul par boutique de la commission de Béthanie (5 % du prix des articles) et de la part du vendeur (95 %), enregistrés avec le taux | P1 | ✅ |
+| TRX-02 | Contrôle des montants à chaque transaction (articles, total, remise, répartition) ; transaction refusée et annulée en cas d’écart | P1 | ✅ |
+| TRX-03 | Commission « prévue » à la commande, « acquise » au paiement (ou à la livraison si paiement à la livraison), dans la même opération que le paiement | P1 | ✅ |
+| TRX-04 | Journal des transactions scellé (chaque ligne liée à la précédente) ; toute modification détectée | P1 | ✅ (sceau HMAC avec `TRANSACTIONS_SECRET`) |
+| TRX-05 | Rapport administrateur : commission perçue et à percevoir, par boutique, écarts, intégrité du journal (Profil et `npm run controle`) | P1 | ✅ |
+| TRX-06 | Rôle administrateur attribué par adresse Google vérifiée (`ADMIN_EMAILS`) | P1 | ✅ |
+| TRX-07 | Encaissement réel sur le compte de Béthanie et reversement de la part des vendeurs (VEN-08) | P1 | ⬜ lot 3 (paiement réel) |
+| TRX-08 | Commande non payée depuis 2 heures : annulée automatiquement, stock remis en vente, commission annulée et journalisée ; le client voit « Annulée » et l’explication dans le suivi | P1 | ✅ |
+| TRX-09 | Au plus 10 commandes par heure et par compte | P2 | ✅ |
 
 ---
 
@@ -373,11 +396,13 @@ Un seul code par commande, calculé sur le sous-total :
 - « Achat vérifié » uniquement si le client a une commande contenant ce produit.
 - La note moyenne du produit est recalculée à chaque nouvel avis.
 
-### RG-09 — Commission **[À valider]**
+### RG-09 — Commission de 5 % (validée le 5 octobre 2026)
 
-L’interface annonce une commission unique de **5 %** (le vendeur garde 95 %) et un paiement au vendeur
-**sous 48 h**. Aujourd’hui, la commission est seulement affichée (« net estimé » du tableau de bord vendeur) :
-elle n’est ni calculée ni prélevée par le serveur (voir VEN-08).
+Béthanie perçoit **5 % du prix des articles** de chaque vente ; le vendeur garde 95 %. La commission est calculée par
+boutique et par commande, arrondie au franc CFA ; la part du vendeur est le reste. Les frais de livraison et les codes
+promo (financés par Béthanie) n’entrent pas dans le calcul. Le contrôleur des transactions (4.14) calcule, vérifie et
+journalise la commission à chaque transaction. **Reste à faire** : encaissement réel et reversement des 95 % aux
+vendeurs (VEN-08, « sous 48 h » annoncé), avec le paiement réel (lot 3).
 
 ### RG-10 — Commandes multi-vendeurs
 
@@ -502,7 +527,7 @@ Le détail technique est dans [ARCHITECTURE.md](ARCHITECTURE.md).
 | **4. Opérations** | Espace administrateur, vérification des boutiques, modération, litiges, sous-commandes par vendeur, reversements, codes promo administrables | ⬜ |
 | **5. Mise en production** | Hébergement, nom de domaine, HTTPS, sauvegardes, supervision, tests automatisés, mentions légales et CGV | ⬜ |
 | **6. Mobile** | Application installable (PWA) puis, si besoin, applications Android / iOS | 🟡 PWA réalisée (4.11) ; applications natives à décider |
-| **7. Assistant vendeur** | Assistant unique et compétences AGV-01 à AGV-07 ; intégration à cadrer après validation de la spécification fonctionnelle | ⬜ |
+| **7. Assistant vendeur** | Assistant unique et compétences AGV-01 à AGV-07 | 🟡 réalisé (Claude Opus 5.5) ; à activer avec `ANTHROPIC_API_KEY` et à valider (AGV-R1 à R8) |
 
 Les durées de chaque lot sont à estimer une fois les décisions de la section 10 prises.
 
@@ -564,6 +589,19 @@ Chaque lot est accepté lorsque ses scénarios passent sur l’environnement de 
 | R29 | Ordinateur : passer la souris sur une carte produit | La carte s’incline légèrement vers le pointeur avec un reflet ; elle se redresse quand la souris sort | ✅ |
 | R30 | Payer une commande (compte de démonstration) | Coche dessinée, confettis, puis ouverture du suivi de la commande | ✅ |
 | R31 | Accueil au chargement | Photo de la bannière qui se pose, titre mot par mot, soulignement doré ; aucun défilement horizontal à 360, 768, 1024 et 1440 px | ✅ |
+| R32 | Profil → Animations → « Toujours activées » sur un PC Windows aux effets d’animation coupés | Les animations jouent ; « Réduites » les coupe ; le choix est gardé | ✅ |
+| R33 | Toucher un bouton principal ; ajouter un favori | Onde au point touché ; éclats autour du cœur | ✅ |
+| R34 | Suivi d’une commande expédiée | Le camion avance jusqu’à mi-parcours, l’étape en cours émet | ✅ |
+| R35 | Ouvrir les filtres du catalogue ou le réglage Animations sur téléphone | Le panneau est au-dessus de la barre d’onglets | ✅ |
+| R36 | « Continuer avec Google » (compte nouveau, compte existant, adresse déjà liée à un autre compte Google) | Compte créé / lié / refusé ; session ouverte et conservée après rechargement | ✅ en mode test Firebase ; vraie fenêtre Google à tester après configuration |
+| R37 | Assistant vendeur sans clé | Message « pas encore activé » ; journal du serveur qui nomme `ANTHROPIC_API_KEY` | ✅ |
+| R38 | Assistant vendeur : stock faible, commandes, fiche produit | Propositions avec « Confirmer » ; rien ne change sans clic ; produit d’une autre boutique refusé ; formulaire pré-rempli | ✅ avec une doublure de l’API ; à refaire avec une vraie clé |
+| R39 | Commande de produits de deux boutiques, paiement Mobile Money | Commission de 5 % par boutique (ex. 2 500 FCFA sur 50 000, 900 FCFA sur 18 000), « prévue » puis « acquise » après paiement | ✅ |
+| R40 | Commande payée à la livraison | Commission « prévue » jusqu’à la livraison, « acquise » à la livraison | ✅ |
+| R41 | Transaction dont un montant est faussé | Refusée, aucune commande créée, stock inchangé, alerte au journal | ✅ (simulé par un déclencheur de base de données) |
+| R42 | Total d’une commande ou ligne du journal modifié directement dans la base | Écart et ligne modifiée signalés par le rapport et `npm run controle` (code de sortie 1) | ✅ |
+| R43 | Profil d’un administrateur (`ADMIN_EMAILS`) / d’un client | Carte « Commissions Béthanie » visible / absente ; rapport refusé au client (403) | ✅ |
+| R44 | Pages du site en ligne | En-têtes de sécurité présents (politique de contenu, protection contre l’affichage dans un cadre), aucune erreur dans le navigateur | ✅ sur la version Vercel simulée ; à revérifier après mise en ligne |
 
 ---
 

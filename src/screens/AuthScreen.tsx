@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { BethanieLogo } from '../components/BethanieLogo';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
-import { btnOutline, btnPrimary } from '../components/ui';
+import { btnPrimary } from '../components/ui';
 import { useI18n } from '../i18n';
 import { errorMessage } from '../api/client';
 
@@ -63,10 +63,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ reason, onGoogleAuth, on
               {busy ? <i className="fa-solid fa-spinner animate-spin" aria-hidden="true"></i> : <GoogleIcon />}
               {t('auth.google')}
             </button>
-            <button type="button" disabled={busy} onClick={authenticate} className={`${btnOutline} w-full h-12`}>
-              <i className="fa-solid fa-user-plus" aria-hidden="true"></i>
-              {t('auth.createWithGoogle')}
-            </button>
+            <p className="text-xs text-slate-500 text-center">{t('auth.autoAccount')}</p>
           </div>
 
           {error && (
