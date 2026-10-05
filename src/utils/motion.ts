@@ -207,8 +207,18 @@ export const useMotionPreference = () =>
 /* Onde au toucher sur les boutons (classe « ripple »)                 */
 /* ------------------------------------------------------------------ */
 
-/** Un seul écouteur pour toute l'application : une onde part du point touché sur tout élément `.ripple`. */
+// Protège contre un double appel (StrictMode, HMR, futur refactor) : un seul écouteur pour toute la vie de la page.
+let ripplesInitialized = false;
+
+/**
+ * Un seul écouteur pour toute l'application : une onde part du point touché sur tout élément `.ripple`.
+ * Volontairement permanent (comme `initPwa()`) : appelé une fois depuis `main.tsx`, avant le rendu React, donc hors
+ * du cycle de montage/démontage d'un composant — il n'y a rien à « nettoyer » tant que la page reste ouverte.
+ * `ripplesInitialized` empêche seulement l'accumulation d'écouteurs si la fonction était rappelée par erreur.
+ */
 export const initRipples = () => {
+  if (ripplesInitialized) return;
+  ripplesInitialized = true;
   document.addEventListener(
     'pointerdown',
     (event) => {
@@ -221,7 +231,11 @@ export const initRipples = () => {
       wave.setAttribute('aria-hidden', 'true');
       wave.style.cssText = `width:${size}px;height:${size}px;left:${event.clientX - rect.left - size / 2}px;top:${event.clientY - rect.top - size / 2}px`;
       host.appendChild(wave);
+      // { once: true } : le navigateur retire lui-même cet écouteur après son unique déclenchement — rien à nettoyer.
       wave.addEventListener('animationend', () => wave.remove(), { once: true });
+      // Filet de sécurité si « animationend » ne se déclenche jamais (onglet en arrière-plan, animation coupée) :
+      // le minuteur est à usage unique (pas d'intervalle) et se résout de lui-même ; wave.remove() est sans effet
+      // si l'élément a déjà été retiré par le gestionnaire ci-dessus.
       window.setTimeout(() => wave.remove(), 1000);
     },
     { passive: true }

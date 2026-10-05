@@ -72,6 +72,8 @@ export interface Order {
   discount: number;
   total: number;
   paymentMethod: string;
+  /** Nom du client au moment de la commande (achat invité ou compte). */
+  customerName?: string;
   phoneNumber?: string;
   shippingAddress: string;
   paymentStatus?: PaymentStatus;
@@ -223,6 +225,8 @@ export interface CheckoutPayload {
   paymentMethod: string;
   paymentPhone?: string;
   promoCode?: string;
+  /** Achat sans compte uniquement : nom complet saisi à la livraison. */
+  customerName?: string;
 }
 
 export interface ApiConfig {

@@ -186,6 +186,10 @@ db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_payment_reference ON order
 if (!orderColumns.some((column) => column.name === 'cancel_reason')) {
   db.exec('ALTER TABLE orders ADD COLUMN cancel_reason TEXT');
 }
+// Nom du client au moment de la commande (achat invité ou compte) : indépendant du profil, qui peut changer.
+if (!orderColumns.some((column) => column.name === 'customer_name')) {
+  db.exec('ALTER TABLE orders ADD COLUMN customer_name TEXT');
+}
 
 /* Contrôle des transactions et commission de Béthanie (RG-09, voir transactions.ts). */
 db.exec(`

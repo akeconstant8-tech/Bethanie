@@ -74,8 +74,12 @@ const SCREEN_PATHS: Record<ScreenType, string> = {
 const ACCOUNT_TABS: AccountTab[] = ['orders', 'wishlist', 'addresses', 'payments', 'profile'];
 const SELLER_TABS: SellerTab[] = ['products', 'orders', 'stats', 'new'];
 
-/** Écrans réservés aux personnes connectées ; la raison affichée est la clé auth.reason.<écran>. */
-const PROTECTED: ScreenType[] = ['checkout', 'tracking', 'account', 'seller'];
+/**
+ * Écrans réservés aux personnes connectées ; la raison affichée est la clé auth.reason.<écran>.
+ * « checkout » est volontairement absent : l'achat ne demande jamais de connexion Google (voir
+ * placeOrder, qui ouvre une session invitée côté serveur dès que la commande est validée).
+ */
+const PROTECTED: ScreenType[] = ['tracking', 'account', 'seller'];
 
 /** Écrans sans barre d'onglets sur mobile : ils ont leur propre barre d'action en bas. */
 const FOCUSED_SCREENS: ScreenType[] = ['product-detail', 'checkout', 'tracking'];
@@ -567,6 +571,10 @@ const App: React.FC = () => {
     setPromoCode(null);
     setNewOrderId(order.id);
     loadCatalog(); // stocks mis à jour
+    // Achat sans compte : le serveur vient d'ouvrir une session invitée (voir server/auth.ts,
+    // createGuestAccount) ; on la reflète tout de suite pour que le suivi de commande s'affiche
+    // sans redirection vers la connexion Google.
+    if (!me) await api.me().then((fresh) => fresh && setMe(fresh));
     if (saveAddress) api.addAddress(saveAddress).then(setMe).catch(() => undefined);
     return order;
   };
@@ -796,7 +804,7 @@ const App: React.FC = () => {
         return (
           <CheckoutScreen
             cart={cart}
-            user={me!}
+            user={me}
             promo={promo}
             selectedCity={selectedCity}
             onCityChange={setSelectedCity}

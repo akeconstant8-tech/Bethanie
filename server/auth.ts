@@ -100,6 +100,26 @@ export const requireClientHeader = (req: Request, _res: Response, next: NextFunc
   next();
 };
 
+/**
+ * Achat sans compte : crée un profil minimal (aucun mot de passe utilisable, aucun Google lié) pour
+ * que la commande, le paiement GeniusPay et le suivi réutilisent exactement le même mécanisme de
+ * session que pour un compte normal. L'adresse e-mail générée est interne, jamais montrée au client.
+ */
+export const createGuestAccount = (res: Response, name: string, phone: string): AuthUser => {
+  const id = crypto.randomUUID();
+  const cleanName = name.trim().slice(0, 80);
+  const email = `invite-${id}@invite.bethanie.local`;
+  db.prepare('INSERT INTO users (id, name, email, phone, password_hash) VALUES (?, ?, ?, ?, ?)').run(
+    id,
+    cleanName,
+    email,
+    phone.trim().slice(0, 30),
+    hashPassword(crypto.randomBytes(32).toString('base64url'))
+  );
+  createSession(res, id);
+  return { id, name: cleanName, email, role: 'customer' };
+};
+
 export const purgeExpiredSessions = () => {
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
 };

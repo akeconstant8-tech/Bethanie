@@ -168,6 +168,7 @@ const toOrder = (row: Row, items: Row[], events: Row[], forCustomer: boolean): O
     discount: Number(row.discount),
     total: Number(row.total),
     paymentMethod: String(row.payment_method),
+    customerName: str(row.customer_name),
     phoneNumber: str(row.phone_number),
     contactPhone: str(row.contact_phone),
     shippingAddress: String(row.shipping_address),

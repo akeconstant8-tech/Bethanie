@@ -13,7 +13,7 @@ import {
   getDeliveryFee,
   nextStatus,
 } from '../../src/utils/commerce.ts';
-import { currentUser } from '../auth.ts';
+import { createGuestAccount, currentUser } from '../auth.ts';
 import { config } from '../config.ts';
 import { db, type Row } from '../db.ts';
 import { badRequest, conflict, forbidden, notFound, parse } from '../http.ts';
@@ -47,6 +47,8 @@ const CheckoutSchema = z.object({
   paymentMethod: z.string().refine((v) => PAYMENT_OPTIONS.some((o) => o.id === v), 'Moyen de paiement inconnu.'),
   paymentPhone: z.string().trim().max(30).optional(),
   promoCode: z.string().trim().max(30).optional(),
+  // Achat sans compte uniquement : nom complet du client, demandé à la livraison.
+  customerName: z.string().trim().max(80).optional(),
 });
 
 const newOrderId = () => {
@@ -83,20 +85,24 @@ ordersRouter.get('/orders/:id', (req, res) => {
   res.json({ order: loadOrders([row])[0] });
 });
 
-// Au plus 10 commandes par heure et par compte : empêche de bloquer le stock d'un vendeur en masse.
+// Au plus 10 commandes par heure, par compte quand il y en a un, sinon par adresse IP (achat invité).
 const orderLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 10,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  keyGenerator: (req) => currentUser(req).id,
+  keyGenerator: (req) => req.user?.id ?? req.ip ?? 'anonyme',
   message: { error: 'Trop de commandes en peu de temps. Réessayez dans une heure.' },
 });
 
 ordersRouter.post('/orders', orderLimiter, async (req, res) => {
-  const user = currentUser(req);
   const data = parse(CheckoutSchema, req.body);
   const payment = PAYMENT_OPTIONS.find((o) => o.id === data.paymentMethod)!;
+
+  // Achat sans compte : le nom est validé tout de suite, mais le profil n'est créé qu'une fois la
+  // commande elle-même validée (stock, prix…), pour ne pas laisser de profil invité orphelin.
+  const guestName = req.user ? undefined : data.customerName?.trim();
+  if (!req.user && (!guestName || guestName.length < 2)) throw badRequest('Indiquez votre nom complet.');
 
   if (data.deliveryMethod === 'express' && data.city !== 'Abidjan') {
     throw badRequest('La livraison express est réservée à Abidjan.');
@@ -144,16 +150,19 @@ ordersRouter.post('/orders', orderLimiter, async (req, res) => {
   const total = subtotal + deliveryFee - discount;
   const cashOnDelivery = data.paymentMethod === 'Paiement à la livraison';
   const id = newOrderId();
+  // La commande est désormais certaine d'être créée : on peut ouvrir la session invitée sans risque
+  // de profil orphelin. Jamais de connexion Google demandée ici.
+  const user = req.user ?? createGuestAccount(res, guestName!, data.contactPhone);
 
   guarded(() => {
     db.prepare(
       `INSERT INTO orders (id, user_id, status, payment_status, payment_method, phone_number, contact_phone, delivery_method,
-         city, shipping_address, subtotal, delivery_fee, discount, total, promo_code)
-       VALUES (?, ?, 'confirmée', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         city, shipping_address, subtotal, delivery_fee, discount, total, promo_code, customer_name)
+       VALUES (?, ?, 'confirmée', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, user.id, cashOnDelivery ? 'à_la_livraison' : 'en_attente', data.paymentMethod,
       payment.needsPhone ? data.paymentPhone! : data.contactPhone, data.contactPhone, data.deliveryMethod, data.city,
-      data.shippingAddress, subtotal, deliveryFee, discount, total, promoCode
+      data.shippingAddress, subtotal, deliveryFee, discount, total, promoCode, user.name
     );
     for (const line of lines) {
       db.prepare(
@@ -177,14 +186,13 @@ ordersRouter.post('/orders', orderLimiter, async (req, res) => {
   // Paiement en ligne : création du paiement GeniusPay ; en cas d'échec, la commande est annulée (stock rendu).
   if (!cashOnDelivery && isGeniusPay()) {
     try {
-      const me = db.prepare('SELECT name, email FROM users WHERE id = ?').get(user.id) as Row;
       const started = await startPayment({
         orderId: id,
         amount: total,
         method: data.paymentMethod,
         customer: {
-          name: String(me.name),
-          email: String(me.email),
+          name: user.name,
+          email: user.email,
           phone: payment.needsPhone ? data.paymentPhone : data.contactPhone,
           country: data.city === 'Dakar' ? 'SN' : 'CI',
         },

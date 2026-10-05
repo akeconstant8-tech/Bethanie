@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CartItem, CheckoutPayload, NavigateParams, Order, ScreenType, User } from '../types';
+import { CartItem, CheckoutPayload, Me, NavigateParams, Order, ScreenType } from '../types';
 import { errorMessage } from '../api/client';
 import { PaymentLogo, PhoneFlag } from '../components/PaymentLogo';
 import { Confetti, EmptyState, MobileHeader, PageTitle, btnPrimary, cardClass, inputClass } from '../components/ui';
@@ -25,7 +25,8 @@ const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve,
 
 interface CheckoutScreenProps {
   cart: CartItem[];
-  user: User;
+  /** `null` pour un achat sans compte : aucune connexion Google n'est demandée dans ce cas. */
+  user: Me | null;
   promo: PromoCode | null;
   selectedCity: string;
   onCityChange: (city: string) => void;
@@ -82,21 +83,22 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
   onPayOrder,
 }) => {
   const { t, tn, rich, paymentLabel } = useI18n();
-  const defaultAddress = user.addresses.find((a) => a.default) ?? user.addresses[0];
-  const defaultPayment = user.paymentMethods.find((p) => p.default);
+  const defaultAddress = user?.addresses.find((a) => a.default) ?? user?.addresses[0];
+  const defaultPayment = user?.paymentMethods.find((p) => p.default);
 
+  const [fullName, setFullName] = useState(user?.name ?? '');
   const [addressId, setAddressId] = useState<string>(defaultAddress?.id ?? 'new');
   const [newAddress, setNewAddress] = useState({ title: 'Domicile', address: '' });
   const [saveAddress, setSaveAddress] = useState(true);
-  const [contactPhone, setContactPhone] = useState(user.phone);
+  const [contactPhone, setContactPhone] = useState(user?.phone ?? '');
   const [delivery, setDelivery] = useState<DeliveryMethodId>(selectedCity === 'Abidjan' ? 'express' : 'standard');
   const [payment, setPayment] = useState<string>(
     PAYMENT_OPTIONS.some((o) => o.id === defaultPayment?.type) ? defaultPayment!.type : 'Orange Money'
   );
   const [paymentPhone, setPaymentPhone] = useState(
-    defaultPayment && defaultPayment.number.startsWith('+') ? defaultPayment.number : user.phone
+    defaultPayment && defaultPayment.number.startsWith('+') ? defaultPayment.number : user?.phone ?? ''
   );
-  const [card, setCard] = useState({ number: '', expiry: '', cvc: '', name: user.name });
+  const [card, setCard] = useState({ number: '', expiry: '', cvc: '', name: user?.name ?? '' });
   const [errors, setErrors] = useState<string[]>([]);
   const [stage, setStage] = useState<PaymentStage>('idle');
   const [placedTotal, setPlacedTotal] = useState<number | null>(null);
@@ -139,11 +141,12 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
 
   const shippingAddress = () => {
     if (addressId === 'new') return `${newAddress.address.trim()}, ${selectedCity}`;
-    return user.addresses.find((x) => x.id === addressId)!.address;
+    return user?.addresses.find((x) => x.id === addressId)?.address ?? '';
   };
 
   const validate = () => {
     const list: string[] = [];
+    if (!user && fullName.trim().length < 2) list.push(t('checkout.err.fullName'));
     if (addressId === 'new' && newAddress.address.trim().length < 8) list.push(t('checkout.err.address'));
     if (contactPhone.replace(/\D/g, '').length < 8) list.push(t('checkout.err.phone'));
     if (paymentOption.needsPhone && paymentPhone.replace(/\D/g, '').length < 8)
@@ -173,8 +176,11 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
         contactPhone,
         paymentMethod: payment,
         paymentPhone: paymentOption.needsPhone ? paymentPhone : undefined,
+        customerName: user ? undefined : fullName.trim(),
         saveAddress:
-          addressId === 'new' && saveAddress ? { title: newAddress.title || 'Adresse', address: shippingAddress() } : undefined,
+          user && addressId === 'new' && saveAddress
+            ? { title: newAddress.title || 'Adresse', address: shippingAddress() }
+            : undefined,
       });
       setPlacedTotal(order.total);
       // 2a. Paiement en ligne (GeniusPay) : page de paiement sécurisée ; le retour se fait sur le suivi de la commande.
@@ -322,6 +328,18 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
             </Section>
 
             <Section title={t('checkout.address')}>
+              {!user && (
+                <label className="block text-sm font-medium text-slate-700 mb-3">
+                  {t('checkout.fullName')}
+                  <input
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder={t('checkout.fullNamePlaceholder')}
+                    autoComplete="name"
+                    className={`${inputClass} mt-1.5`}
+                  />
+                </label>
+              )}
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <label className="text-sm font-medium text-slate-700">
                   {t('common.city')}
@@ -343,7 +361,7 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
                 </label>
               </div>
               <div className="space-y-2.5">
-                {user.addresses.map((a) => (
+                {user?.addresses.map((a) => (
                   <ChoiceRow key={a.id} name="address" checked={addressId === a.id} onChange={() => setAddressId(a.id)}>
                     <span className="w-10 h-10 rounded-xl bg-brand-50 text-brand-900 flex items-center justify-center shrink-0">
                       <i className="fa-solid fa-location-dot"></i>
@@ -357,31 +375,37 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
                     </span>
                   </ChoiceRow>
                 ))}
-                <ChoiceRow name="address" checked={addressId === 'new'} onChange={() => setAddressId('new')}>
-                  <span className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-                    <i className="fa-solid fa-plus"></i>
-                  </span>
-                  <span className="text-sm font-semibold text-slate-900">{t('checkout.newAddress')}</span>
-                </ChoiceRow>
+                {user && (
+                  <ChoiceRow name="address" checked={addressId === 'new'} onChange={() => setAddressId('new')}>
+                    <span className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                      <i className="fa-solid fa-plus"></i>
+                    </span>
+                    <span className="text-sm font-semibold text-slate-900">{t('checkout.newAddress')}</span>
+                  </ChoiceRow>
+                )}
                 {addressId === 'new' && (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                    <input
-                      value={newAddress.title}
-                      onChange={(e) => setNewAddress({ ...newAddress, title: e.target.value })}
-                      placeholder={t('checkout.addressName')}
-                      className={inputClass}
-                    />
+                    {user && (
+                      <input
+                        value={newAddress.title}
+                        onChange={(e) => setNewAddress({ ...newAddress, title: e.target.value })}
+                        placeholder={t('checkout.addressName')}
+                        className={inputClass}
+                      />
+                    )}
                     <input
                       value={newAddress.address}
                       onChange={(e) => setNewAddress({ ...newAddress, address: e.target.value })}
                       placeholder={t('checkout.addressPlaceholder')}
                       autoComplete="street-address"
-                      className={`${inputClass} sm:col-span-2`}
+                      className={`${inputClass} ${user ? 'sm:col-span-2' : 'sm:col-span-3'}`}
                     />
-                    <label className="sm:col-span-3 flex items-center gap-2 text-sm text-slate-600">
-                      <input type="checkbox" checked={saveAddress} onChange={(e) => setSaveAddress(e.target.checked)} />
-                      {t('checkout.saveAddress')}
-                    </label>
+                    {user && (
+                      <label className="sm:col-span-3 flex items-center gap-2 text-sm text-slate-600">
+                        <input type="checkbox" checked={saveAddress} onChange={(e) => setSaveAddress(e.target.checked)} />
+                        {t('checkout.saveAddress')}
+                      </label>
+                    )}
                   </div>
                 )}
               </div>

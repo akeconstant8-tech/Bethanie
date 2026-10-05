@@ -32,8 +32,23 @@ export const parse = <S extends ZodTypeAny>(schema: S, data: unknown): z.infer<S
   return result.data;
 };
 
+/**
+ * Un message d'erreur de Béthanie est toujours une phrase courte, écrite à la main, en français (voir les ~50
+ * appels à `new HttpError(...)`, `badRequest()`, `conflict()`… dans `server/`). Ce garde-fou ne change donc rien
+ * aujourd'hui : il protège contre une future erreur d'inattention (ex. `throw new HttpError(500, dbError.message)`)
+ * qui renverrait au client un message de pilote de base de données, une trace d'appel ou un chemin de fichier.
+ */
+const looksLikeInternalLeak = (message: string) =>
+  message.length > 300 ||
+  /\n|\bat \S+ \(|node_modules|[A-Za-z]:\\|\/home\/|\/var\/|\bSELECT\b.*\bFROM\b|stack trace/i.test(message);
+
 export const errorHandler = (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof HttpError) {
+    if (looksLikeInternalLeak(err.message)) {
+      console.error('[api] Message d’erreur suspect bloqué avant envoi au client :', err.message.slice(0, 500));
+      res.status(err.status).json({ error: 'Une erreur est survenue. Réessayez dans un instant.' });
+      return;
+    }
     res.status(err.status).json({ error: err.message });
     return;
   }

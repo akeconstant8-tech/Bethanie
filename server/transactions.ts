@@ -52,6 +52,8 @@ export const logEvent = (orderId: string | null, event: TransactionEvent, amount
   db.prepare(
     'INSERT INTO transaction_log (at, order_id, event, amount, commission, details, prev_hash, hash, seal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(row.at, row.order_id, row.event, row.amount, row.commission, row.details, prev, seal(prev, row, method), method);
+  // Toute écriture rend le rapport administrateur en cache obsolète (voir auditReport ci-dessous).
+  auditCache = null;
 };
 
 /**
@@ -297,8 +299,25 @@ export const backfillSettlements = () => {
 /* Rapport                                                             */
 /* ------------------------------------------------------------------ */
 
-/** Contrôle complet : toutes les commandes et l'intégrité du journal, plus le total des commissions. */
+/**
+ * Mis en cache 15 s (invalidé immédiatement par logEvent dès qu'une commande est créée, payée ou annulée) :
+ * sans cela, chaque appel relit toutes les commandes, recalcule une à une leurs vérifications (checkOrder), et
+ * reparcourt tout le journal pour recalculer sa chaîne de hachage — un coût qui grandit avec l'historique de la
+ * boutique et qu'un administrateur (ou une session compromise) pourrait démultiplier en rafraîchissant en boucle
+ * GET /api/admin/transactions. Le cache ramène ce coût à au plus un calcul complet toutes les 15 s par processus,
+ * quel que soit le nombre de requêtes reçues entre deux écritures réelles.
+ */
+const AUDIT_CACHE_MS = 15_000;
+let auditCache: { at: number; report: ReturnType<typeof computeAuditReport> } | null = null;
+
 export const auditReport = () => {
+  if (auditCache && Date.now() - auditCache.at < AUDIT_CACHE_MS) return auditCache.report;
+  const report = computeAuditReport();
+  auditCache = { at: Date.now(), report };
+  return report;
+};
+
+function computeAuditReport() {
   const orders = db.prepare('SELECT id FROM orders ORDER BY created_at').all() as Row[];
   const anomalies = orders
     .map((o) => ({ commande: String(o.id), ecarts: checkOrder(String(o.id)) }))
@@ -339,4 +358,4 @@ export const auditReport = () => {
     journal: { ...verifyLog(), scelle: secret() ? 'HMAC (TRANSACTIONS_SECRET)' : 'empreinte simple (définir TRANSACTIONS_SECRET en production)' },
     verifieLe: nowIso(),
   };
-};
+}

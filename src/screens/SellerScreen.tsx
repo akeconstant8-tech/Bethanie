@@ -624,10 +624,16 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
             </div>
             {withActions && (
               <div className="mt-3 pl-15 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-slate-500 min-w-0 truncate">
-                  <i className="fa-solid fa-location-dot mr-1"></i>
-                  {order.shippingAddress} • {paymentLabel(order.paymentMethod)}
-                </p>
+                <div className="min-w-0 space-y-0.5">
+                  <p className="text-xs text-slate-600 truncate">
+                    <i className="fa-solid fa-user mr-1"></i>
+                    {order.customerName ?? t('seller.unknownCustomer')} • {order.contactPhone}
+                  </p>
+                  <p className="text-xs text-slate-500 truncate">
+                    <i className="fa-solid fa-location-dot mr-1"></i>
+                    {order.shippingAddress} • {paymentLabel(order.paymentMethod)}
+                  </p>
+                </div>
                 {order.paymentStatus === 'en_attente' ? (
                   <span className="text-xs font-semibold text-amber-700">
                     <i className="fa-solid fa-hourglass-half mr-1"></i>
