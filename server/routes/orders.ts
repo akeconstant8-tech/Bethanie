@@ -17,9 +17,9 @@ import { currentUser } from '../auth.ts';
 import { config } from '../config.ts';
 import { db, type Row } from '../db.ts';
 import { badRequest, conflict, forbidden, notFound, parse } from '../http.ts';
-import { isSimulation, startPayment } from '../payments.ts';
+import { isGeniusPay, isSimulation, publicUrl, reconcileOrderPayment, startPayment } from '../payments.ts';
 import { getProduct, loadOrders } from '../serializers.ts';
-import { acquireCommission, backfillSettlements, guarded, settleOrder } from '../transactions.ts';
+import { acquireCommission, backfillSettlements, cancelOrder, guarded, settleOrder } from '../transactions.ts';
 
 export const ordersRouter = Router();
 
@@ -93,7 +93,7 @@ const orderLimiter = rateLimit({
   message: { error: 'Trop de commandes en peu de temps. Réessayez dans une heure.' },
 });
 
-ordersRouter.post('/orders', orderLimiter, (req, res) => {
+ordersRouter.post('/orders', orderLimiter, async (req, res) => {
   const user = currentUser(req);
   const data = parse(CheckoutSchema, req.body);
   const payment = PAYMENT_OPTIONS.find((o) => o.id === data.paymentMethod)!;
@@ -144,7 +144,6 @@ ordersRouter.post('/orders', orderLimiter, (req, res) => {
   const total = subtotal + deliveryFee - discount;
   const cashOnDelivery = data.paymentMethod === 'Paiement à la livraison';
   const id = newOrderId();
-  if (!cashOnDelivery) startPayment(id, total, data.paymentMethod);
 
   guarded(() => {
     db.prepare(
@@ -175,6 +174,29 @@ ordersRouter.post('/orders', orderLimiter, (req, res) => {
     settleOrder(id);
   });
 
+  // Paiement en ligne : création du paiement GeniusPay ; en cas d'échec, la commande est annulée (stock rendu).
+  if (!cashOnDelivery && isGeniusPay()) {
+    try {
+      const me = db.prepare('SELECT name, email FROM users WHERE id = ?').get(user.id) as Row;
+      const started = await startPayment({
+        orderId: id,
+        amount: total,
+        method: data.paymentMethod,
+        customer: {
+          name: String(me.name),
+          email: String(me.email),
+          phone: payment.needsPhone ? data.paymentPhone : data.contactPhone,
+          country: data.city === 'Dakar' ? 'SN' : 'CI',
+        },
+        returnUrl: `${publicUrl(req)}/#/suivi/${encodeURIComponent(id)}`,
+      });
+      db.prepare('UPDATE orders SET payment_reference = ?, payment_url = ? WHERE id = ?').run(started.reference, started.url, id);
+    } catch (error) {
+      cancelOrder(id, 'paiement en ligne impossible à démarrer');
+      throw error;
+    }
+  }
+
   res.status(201).json({ order: loadOrders([getOrderRow(id)])[0] });
 });
 
@@ -190,6 +212,15 @@ ordersRouter.post('/orders/:id/pay', (req, res) => {
       acquireCommission(String(row.id), 'en ligne');
     });
   }
+  res.json({ order: loadOrders([getOrderRow(String(row.id))])[0] });
+});
+
+/** Retour de la page de paiement : le serveur demande le statut à GeniusPay et met la commande à jour. */
+ordersRouter.post('/orders/:id/payment/check', async (req, res) => {
+  const user = currentUser(req);
+  const row = getOrderRow(req.params.id);
+  if (row.user_id !== user.id) throw notFound('Commande introuvable.');
+  if (row.payment_reference && row.payment_status === 'en_attente') await reconcileOrderPayment(String(row.id));
   res.json({ order: loadOrders([getOrderRow(String(row.id))])[0] });
 });
 

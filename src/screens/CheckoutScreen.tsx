@@ -35,7 +35,7 @@ interface CheckoutScreenProps {
   onPayOrder: (orderId: string) => Promise<Order>;
 }
 
-type PaymentStage = 'idle' | 'waiting' | 'success';
+type PaymentStage = 'idle' | 'waiting' | 'success' | 'redirect';
 
 /** Ligne à choix unique de la maquette : pastille, libellé, bouton radio à droite. */
 const ChoiceRow: React.FC<{
@@ -177,7 +177,14 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
           addressId === 'new' && saveAddress ? { title: newAddress.title || 'Adresse', address: shippingAddress() } : undefined,
       });
       setPlacedTotal(order.total);
-      // 2. Paiement : simulé ici, en attendant l'agrégateur Mobile Money (voir server/payments.ts).
+      // 2a. Paiement en ligne (GeniusPay) : page de paiement sécurisée ; le retour se fait sur le suivi de la commande.
+      if (order.paymentUrl) {
+        setStage('redirect');
+        await wait(900);
+        window.location.assign(order.paymentUrl);
+        return;
+      }
+      // 2b. Démonstration : paiement simulé (voir server/payments.ts).
       if (order.paymentStatus === 'en_attente') {
         await wait(2500);
         await onPayOrder(order.id);
@@ -491,7 +498,15 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
       {stage !== 'idle' && (
         <div className="animate-fade-in fixed inset-0 z-90 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true">
           <div className="relative bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-lift animate-scale-in" aria-live="assertive">
-            {stage === 'waiting' ? (
+            {stage === 'redirect' ? (
+              <>
+                <div className="w-16 h-16 mx-auto rounded-full bg-brand-50 text-brand-900 flex items-center justify-center text-2xl mb-5 animate-pop">
+                  <i className="fa-solid fa-lock"></i>
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900">{t('checkout.toGeniusPay')}</h3>
+                <p className="text-sm text-slate-500 mt-2">{t('checkout.toGeniusPayText')}</p>
+              </>
+            ) : stage === 'waiting' ? (
               <>
                 <div className="w-16 h-16 mx-auto rounded-full border-4 border-brand-100 border-t-brand-900 animate-spin mb-5"></div>
                 <h3 className="text-lg font-semibold text-slate-900">
@@ -516,7 +531,9 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
                 <p className="text-sm text-slate-500 mt-2">{t('checkout.redirecting')}</p>
               </>
             )}
-            <p className="text-[10px] uppercase tracking-wider text-slate-300 font-semibold mt-6">{t('common.demoMode')}</p>
+            {stage !== 'redirect' && (
+              <p className="text-[10px] uppercase tracking-wider text-slate-300 font-semibold mt-6">{t('common.demoMode')}</p>
+            )}
           </div>
         </div>
       )}

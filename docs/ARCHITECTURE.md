@@ -1,6 +1,6 @@
 # Architecture — Béthanie
 
-> Version 1.10 — 5 octobre 2026. Décrit le code tel qu’il est dans ce dépôt.
+> Version 1.11 — 5 octobre 2026. Décrit le code tel qu’il est dans ce dépôt.
 > Besoins fonctionnels et règles métier : voir [CAHIER_DES_CHARGES.md](CAHIER_DES_CHARGES.md).
 > Maquette de référence de l’interface : [docs/maquette/maquette-ux-ui.jpg](maquette/maquette-ux-ui.jpg).
 
@@ -17,6 +17,7 @@
 | 1.8 | 5 octobre 2026 | Assistant vendeur IA (Claude Opus 5.5) : `routes/assistant.ts`, `SellerAssistant.tsx` (§5.2, §5.3) ; vérification Google simplifiée et journaux explicites (`firebase.ts`, compte de service facultatif) ; master class motion design (§4.8) : réglage « Animations », onde, éclats du cœur, recherche animée, trajet de livraison, bouton « Ajouté ! », panneaux rendus à la racine ; agents et skills de développement (`.claude/`, `docs/AGENTS_ET_SKILLS.md`) ; limite L23 |
 | 1.9 | 5 octobre 2026 | Contrôleur des transactions et commission de 5 % (`transactions.ts`, tables `order_settlements` et `transaction_log`, `routes/admin.ts`, `npm run controle`) ; en-têtes de sécurité communs au serveur et à Vercel (`security-policy.js`) ; rôle administrateur par `ADMIN_EMAILS` ; audit de sécurité (`docs/AUDIT_SECURITE.md`) |
 | 1.10 | 5 octobre 2026 | Annulation des commandes non payées après 2 h (`cancelUnpaidOrders`, déclenchée au plus une fois par minute par les requêtes de l’API, compatible Vercel) et statut « annulée » ; limite de 10 commandes / heure / compte ; identifiant du projet Firebase intégré à la fonction Vercel à la construction (`build-vercel.mjs`) ; un seul bouton Google ; logo à la place du sélecteur de ville sur l’accueil mobile (ville choisie au paiement) |
+| 1.11 | 5 octobre 2026 | Paiement en ligne réel : GeniusPay (Wave, Orange Money, MTN, Moov, carte), page de paiement sécurisée, retour vérifié auprès de GeniusPay (jamais sur la foi du navigateur), notifications signées (`routes/payments.ts` → `payments.ts`, HMAC-SHA256), commande annulée et stock remis en vente en cas d’échec ; route `POST /orders/:id/payment/check` ; `PAYMENT_PROVIDER` passe automatiquement à `geniuspay` dès que `GENIUSPAY_SECRET_KEY` est défini |
 
 Les diagrammes sont écrits en [Mermaid](https://mermaid.js.org/) : GitHub les affiche directement ; dans
 VS Code, installez une extension d’aperçu Mermaid.
@@ -62,7 +63,7 @@ flowchart TB
     API["API Express<br/>/api/*"]
   end
   FIREBASE["Firebase Authentication<br/>identité Google uniquement"]
-  PAY["Agrégateur Mobile Money<br/>(lot 3, simulé)"]
+  PAY["GeniusPay<br/>Wave, Orange Money, MTN, Moov, carte"]
 
   subgraph DATA["server/data/"]
     direction LR
@@ -483,9 +484,9 @@ flowchart LR
 | `routes/assistant.ts` | Assistant vendeur : instantané des données de la boutique, appel à Claude Opus 5.5 (SDK `@anthropic-ai/sdk`, repli automatique), outils de **proposition** vérifiés côté serveur |
 | `routes/me.ts` | Profil, adresses et moyens de paiement (gestion de l’élément « par défaut »), favoris |
 | `routes/catalog.ts` | Liste et fiche produits, avis, boutiques, création de boutique, gestion des produits par le vendeur |
-| `routes/orders.ts` | Création de commande (recalcul + réservation de stock), paiement simulé, avancement, vue vendeur |
+| `routes/orders.ts` | Création de commande (recalcul + réservation de stock), démarrage du paiement, vérification au retour, avancement, vue vendeur |
 | `serializers.ts` | Construit les objets `Product`, `Order`, `Me`, `Shop`, `Review` attendus par le frontend |
-| `payments.ts` | Point d’entrée unique des paiements (aujourd’hui `simulation`) |
+| `payments.ts` | Paiement en ligne GeniusPay : démarrage, rapprochement (toujours revérifié auprès de GeniusPay, jamais sur la foi du webhook ou du navigateur), notifications signées (HMAC-SHA256), repli `simulation` sans `GENIUSPAY_SECRET_KEY` |
 | `uploads.ts` | Décodage, vérification du format réel et écriture des photos |
 
 ### 5.3 Conventions de l’API
@@ -513,7 +514,9 @@ flowchart LR
 | POST / PATCH / DELETE | `/products`, `/products/:id` | vendeur propriétaire |
 | GET / POST | `/orders`, `/orders/:id` | client propriétaire |
 | POST | `/orders/:id/pay` | client propriétaire, mode simulation uniquement |
+| POST | `/orders/:id/payment/check` | client propriétaire ; redemande le statut à GeniusPay et met à jour la commande |
 | POST | `/orders/:id/advance` | vendeur concerné, administrateur, ou client en mode démo |
+| POST | `/payments/webhook/geniuspay` | public, signature HMAC-SHA256 vérifiée (`X-Webhook-Signature`, `X-Webhook-Timestamp`, 5 min) |
 | GET | `/admin/transactions` | administrateur (`ADMIN_EMAILS`) |
 | POST | `/seller/assistant` | vendeur connecté ayant une boutique ; 40 questions / 15 min ; 503 sans `ANTHROPIC_API_KEY` |
 | GET | `/seller/orders` | vendeur |
@@ -670,10 +673,14 @@ sequenceDiagram
   A->>A: contrôles (tailles, couleurs, stock, ville) et recalcul des montants
   A->>D: transaction : commande + articles + stock diminué + étape « confirmée »
   A-->>F: 201 commande (paiement en_attente)
-  Note over F,A: Simulation actuelle. Au lot 3 : redirection vers l’agrégateur,<br/>puis confirmation par webhook.
-  F->>A: POST /api/orders/:id/pay
-  A->>D: paiement = payé
+  Note over F,A: Paiement en ligne (GeniusPay) : A crée le paiement chez GeniusPay et renvoie<br/>sa page sécurisée ; sans GENIUSPAY_SECRET_KEY, repli sur la simulation ci-dessous.
+  F->>C: redirection vers la page de paiement GeniusPay
+  C->>A: retour sur le suivi de commande
+  F->>A: POST /api/orders/:id/payment/check
+  A->>A: redemande le statut à GeniusPay (jamais sur la foi du navigateur)
+  A->>D: paiement = payé, commission acquise
   A-->>F: commande payée
+  Note over A: En parallèle, GeniusPay confirme aussi par notification signée<br/>(POST /api/payments/webhook/geniuspay, HMAC-SHA256).
   F-->>C: écran de suivi
 ```
 
@@ -702,11 +709,11 @@ stateDiagram-v2
   state "En attente" as attente
   state "Payée" as paye
   state "À la livraison" as cod
-  state "Échouée (lot 3)" as echec
-  [*] --> attente : Mobile Money ou carte
+  state "Échouée" as echec
+  [*] --> attente : Mobile Money ou carte (GeniusPay)
   [*] --> cod : paiement à la livraison
-  attente --> paye : confirmation (simulation, puis webhook)
-  attente --> echec : refus ou expiration
+  attente --> paye : paiement confirmé par GeniusPay (vérifié par l’API, pas seulement le webhook)
+  attente --> echec : refus, expiration, ou non payée sous 2 h (commande annulée, stock remis en vente)
   cod --> paye : commande livrée
 ```
 
@@ -766,7 +773,10 @@ Sans photo, une image neutre (`/images/placeholder-product.svg`) est utilisée.
 | `DB_PATH` | `<DATA_DIR>/bethanie.db` | Chemin du fichier SQLite |
 | `COOKIE_SECURE` | `false` | `true` derrière HTTPS (cookie envoyé uniquement en chiffré) |
 | `DEMO_MODE` | `true` | `false` interdit au client de faire avancer lui-même sa commande |
-| `PAYMENT_PROVIDER` | `simulation` | Fournisseur de paiement ; toute autre valeur nécessite une implémentation dans `payments.ts` |
+| `PAYMENT_PROVIDER` | auto (`geniuspay` si `GENIUSPAY_SECRET_KEY` est défini, sinon `simulation`) | Fournisseur de paiement |
+| `GENIUSPAY_SECRET_KEY` | — | Secrète : clé du compte marchand GeniusPay (`sk_sandbox_…` ou `sk_live_…`) |
+| `GENIUSPAY_WEBHOOK_SECRET` | — | Secrète : vérification des notifications GeniusPay (`whsec_…`) |
+| `PUBLIC_URL` | déduite de la requête | Adresse publique du site, pour le retour après paiement GeniusPay |
 | `API_URL` (Vite) | `http://localhost:4000` | Cible du proxy de développement |
 | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` | — | Configuration publique de l’application Web Firebase, requise pour lancer Google côté navigateur |
 | `FIREBASE_PROJECT_ID` | `VITE_FIREBASE_PROJECT_ID` | Projet Firebase dont l’API accepte les jetons Google (public) |
@@ -815,7 +825,7 @@ définir ces variables dans l’environnement de la plateforme. Ne jamais publie
 | L9 | Notes et nombres d’avis des produits de démo repris de la maquette | Un produit annonce « 124 avis » mais n’en a que 3 en base | Sans objet en production (données réelles) |
 | L10 | Photos sur le disque local | À inclure dans les sauvegardes ; non partagées entre serveurs | Stockage objet (S3 ou équivalent) si plusieurs serveurs |
 | L11 | Aucun test automatisé dans le dépôt | Régressions possibles | Tests d’API (`node:test`) et parcours d’achat (Playwright) en intégration continue |
-| L12 | Paiement simulé | Aucun encaissement réel | Lot 3 : agrégateur + webhook signé ; supprimer `/orders/:id/pay` |
+| L12 | Paiement GeniusPay en environnement sandbox (`sk_sandbox_…`) : aucun argent réel ne circule | La commission « perçue » dans le rapport administrateur est fictive tant que la clé reste sandbox | Remplacer par une clé `sk_live_…` (compte marchand GeniusPay actif) ; retirer `/orders/:id/pay` (simulation) une fois la bascule faite |
 | L13 | Connexion par téléphone de la maquette non branchée ; connexion Google dépend de la configuration de chaque environnement | Sans les variables `VITE_FIREBASE_*` (site) la fenêtre Google ne s’ouvre pas ; côté serveur, l’identifiant de projet suffit ; sans compte de service, un compte Google désactivé peut encore se connecter jusqu’à l’expiration de son jeton (1 h) | Configurer Firebase pour chaque environnement ; ajouter le compte de service en production ; connexion SMS à cadrer |
 | L14 | Illustrations des catégories en 320 × 320 px (découpées dans la planche fournie) | Légèrement floues sur écran haute densité en grand format | Fournir chaque illustration séparément, en 640 px ou en SVG |
 | L15 | Photos des écrans de présentation et de l’encart « Espace vendeur » provisoires (marché, atelier) | Ne correspondent pas exactement à la maquette | Photos officielles de Béthanie (voir `public/images/CREDITS.md`) |

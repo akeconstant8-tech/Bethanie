@@ -19,7 +19,8 @@ export const config = {
   cookieSecure: process.env.COOKIE_SECURE === 'true',
   /** Mode démo : paiements simulés et avancement manuel des commandes par le client. */
   demoMode: process.env.DEMO_MODE !== 'false',
-  paymentProvider: process.env.PAYMENT_PROVIDER ?? 'simulation',
+  /** « geniuspay » dès que GENIUSPAY_SECRET_KEY est défini (sauf PAYMENT_PROVIDER=simulation), sinon « simulation ». */
+  paymentProvider: process.env.PAYMENT_PROVIDER?.trim() || (process.env.GENIUSPAY_SECRET_KEY?.trim() ? 'geniuspay' : 'simulation'),
   sessionDays: 30,
   maxUploadBytes: 2.5 * 1024 * 1024,
 };

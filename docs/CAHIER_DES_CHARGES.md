@@ -1,7 +1,7 @@
 # Cahier des charges — Béthanie
 
 > Marketplace africaine « Achetez • Vendez • Bénissez »
-> Version 1.10 — 5 octobre 2026 — document de travail, à valider par le porteur de projet
+> Version 1.11 — 5 octobre 2026 — document de travail, à valider par le porteur de projet
 
 | Version | Date | Changements |
 |---|---|---|
@@ -16,6 +16,7 @@
 | 1.8 | 5 octobre 2026 | Assistant vendeur réalisé (AGV-01 à AGV-07, à valider avec une clé Claude) ; master class motion design (MOT-17 à MOT-22) ; vérification Google simplifiée ; recette R32 à R38 |
 | 1.9 | 5 octobre 2026 | Commission de 5 % calculée, contrôlée et journalisée à chaque transaction (RG-09 validée, 4.14, TRX-01 à TRX-07) ; audit de sécurité (`docs/AUDIT_SECURITE.md`) ; agent de sécurité ; recette R39 à R44 |
 | 1.10 | 5 octobre 2026 | Commandes non payées annulées après 2 heures et limite de 10 commandes par heure (TRX-08, TRX-09) ; statut « Annulée » ; codes promo conservés illimités (décision) ; connexion Google configurée côté serveur, un seul bouton « Continuer avec Google » ; logo et devise à la place de la ville dans l’en-tête mobile de l’accueil |
+| 1.11 | 5 octobre 2026 | Agrégateur de paiement retenu : **GeniusPay** (D1) — CMD-04, RG-04, RG-05, SEC-08 passent en 🟡 (sandbox, à basculer en clé live) ; remise en stock à l’échec (R10) ; recette R45, R46 |
 
 **Légende des statuts** : ✅ réalisé · 🟡 partiel ou dépend d’une configuration externe · ⬜ à faire
 **Priorités** : **P1** indispensable au lancement · **P2** important · **P3** souhaitable
@@ -155,7 +156,7 @@ le site doit donc être pensé d’abord pour le mobile et pour ces moyens de pa
 | CMD-01 | Tunnel de commande : adresse (enregistrée ou nouvelle), téléphone de contact, mode de livraison, moyen de paiement | P1 | ✅ |
 | CMD-02 | Prix, remises et frais de livraison recalculés par le serveur (jamais repris du navigateur) | P1 | ✅ |
 | CMD-03 | Réservation du stock au moment de la commande, sans risque de survente | P1 | ✅ |
-| CMD-04 | Paiement Orange Money, Wave, MTN MoMo, Moov Money et carte via un agrégateur | P1 | 🟡 simulé |
+| CMD-04 | Paiement Orange Money, Wave, MTN MoMo, Moov Money et carte via un agrégateur | P1 | 🟡 GeniusPay intégré, clé `sandbox` (aucun argent réel tant que la clé `live` n’est pas en place) |
 | CMD-05 | Paiement à la livraison | P1 | ✅ |
 | CMD-06 | Paiement échoué ou abandonné : annulation de la commande et remise en stock | P1 | ⬜ |
 | CMD-07 | Annulation par le client avant expédition ; demande de retour sous 7 jours **[À valider]** | P2 | ⬜ |
@@ -369,14 +370,14 @@ Un seul code par commande, calculé sur le sous-total :
 | `en_attente` | Paiement Mobile Money / carte lancé, pas encore confirmé |
 | `payé` | Paiement confirmé (ou encaissé à la livraison) |
 | `à_la_livraison` | Le client paiera au livreur |
-| `échoué` | Prévu pour le lot 3 (paiement refusé ou expiré) |
+| `échoué` | Paiement refusé, expiré, annulé ou non reçu sous 2 heures (GeniusPay) |
 
 ### RG-05 — Stock
 
 - Le stock est décrémenté à la création de la commande, dans une transaction.
 - Si deux clients achètent le dernier article en même temps, un seul obtient la commande ; l’autre reçoit
   « vient d’être épuisé ».
-- Remise en stock en cas d’échec de paiement ou d’annulation : **⬜ lot 3**.
+- Remise en stock en cas d’échec de paiement ou d’annulation : **✅** (commande GeniusPay refusée, expirée ou non payée sous 2 heures).
 
 ### RG-06 — Prix et historique
 
@@ -426,7 +427,7 @@ son propre statut et son propre livreur.
 | SEC-05 | Contrôle des droits sur chaque ressource (commandes, produits, adresses…) | ✅ |
 | SEC-06 | Validation de toutes les entrées ; requêtes SQL paramétrées | ✅ |
 | SEC-07 | Photos : formats contrôlés par leur contenu réel, taille limitée, SVG refusé | ✅ |
-| SEC-08 | Aucune donnée de carte bancaire ne transite par nos serveurs (page de paiement de l’agrégateur) | 🟡 à garantir lors du lot 3 |
+| SEC-08 | Aucune donnée de carte bancaire ne transite par nos serveurs (page de paiement de l’agrégateur) | ✅ (saisie sur la page sécurisée de GeniusPay) |
 | SEC-09 | En-têtes de sécurité et politique de contenu (CSP) | ✅ |
 | SEC-10 | Site servi uniquement en HTTPS | ⬜ mise en production |
 
@@ -509,7 +510,7 @@ Le détail technique est dans [ARCHITECTURE.md](ARCHITECTURE.md).
 
 | Service | Usage | Statut |
 |---|---|---|
-| Agrégateur Mobile Money / carte (CinetPay, PayDunya ou équivalent) | Encaissement, confirmation par webhook, remboursements | ⬜ lot 3 |
+| Agrégateur Mobile Money / carte — **GeniusPay** (D1) | Encaissement, confirmation par webhook signé (HMAC-SHA256) et par vérification API, remboursements | 🟡 intégré, clé sandbox |
 | SMS / WhatsApp Business / e-mail | Codes de vérification, notifications de commande | ⬜ lot 3 |
 | Partenaire de livraison | Prise en charge des colis, statut de livraison | ⬜ lot 4 |
 | Google Fonts, cdnjs (Font Awesome) | Polices et icônes | Retirés en v1.3 : fichiers hébergés par le site (hors ligne, rapidité) |
@@ -537,7 +538,7 @@ Les durées de chaque lot sont à estimer une fois les décisions de la section 
 
 | # | Question | Impact |
 |---|---|---|
-| D1 | Quel agrégateur de paiement ? (frais, moyens couverts, délais de reversement) | Lot 3 |
+| D1 | Quel agrégateur de paiement ? (frais, moyens couverts, délais de reversement) | **Répondu : GeniusPay** (Wave, Orange Money, MTN, Moov, carte ; voir geniuspay.ci) — reste à passer la clé en production |
 | D2 | Taux de commission et délai de reversement aux vendeurs (5 % et 48 h affichés aujourd’hui) | RG-09, VEN-08 |
 | D3 | Hébergement : serveur dédié / VPS, ou passage à Firebase plus tard ? | Lot 5, architecture |
 | D4 | Partenaire de livraison et grille tarifaire définitive | RG-01, lot 4 |
@@ -567,7 +568,7 @@ Chaque lot est accepté lorsque ses scénarios passent sur l’environnement de 
 | R7 | Un nouveau client achète ce produit ; le vendeur traite la commande | La commande apparaît chez le vendeur (ses articles seulement) et avance jusqu’à « Livrée » | ✅ |
 | R8 | Un vendeur tente de modifier le produit d’une autre boutique | Refus « Ce produit n’appartient pas à votre boutique » | ✅ |
 | R9 | Envoi d’un fichier texte déguisé en photo | Refus « Le fichier ne correspond pas à une image valide » | ✅ |
-| R10 | Paiement Mobile Money refusé chez l’agrégateur | Commande annulée, stock rétabli, client informé | ⬜ lot 3 |
+| R10 | Paiement Mobile Money refusé chez l’agrégateur | Commande annulée, stock rétabli, client informé | ✅ (scénario « Paiement refusé » du bac à sable GeniusPay) |
 | R11 | Affichage sur un téléphone de 360 px de large | Aucun défilement horizontal ; menu et panier accessibles | ✅ (vérifié à 360 px) |
 | R12 | Première visite sur mobile par l’accueil | Démarrage, deux écrans de présentation, puis « Connectez-vous » ; « Continuer sans compte » mène à l’accueil ; rien ne s’affiche à la visite suivante | ✅ |
 | R13 | Accueil → catégorie Mode → produit → flèche retour → flèche retour | Retour au catalogue Mode, puis à l’accueil | ✅ |
@@ -602,6 +603,8 @@ Chaque lot est accepté lorsque ses scénarios passent sur l’environnement de 
 | R42 | Total d’une commande ou ligne du journal modifié directement dans la base | Écart et ligne modifiée signalés par le rapport et `npm run controle` (code de sortie 1) | ✅ |
 | R43 | Profil d’un administrateur (`ADMIN_EMAILS`) / d’un client | Carte « Commissions Béthanie » visible / absente ; rapport refusé au client (403) | ✅ |
 | R44 | Pages du site en ligne | En-têtes de sécurité présents (politique de contenu, protection contre l’affichage dans un cadre), aucune erreur dans le navigateur | ✅ sur la version Vercel simulée ; à revérifier après mise en ligne |
+| R45 | Commande payée (scénario « Paiement réussi » du bac à sable GeniusPay) | Commande « payée », commission « acquise » avec la référence GeniusPay dans le journal, stock inchangé | ✅ |
+| R46 | Notification GeniusPay avec signature invalide, horodatage trop ancien, ou numéro de commande ne correspondant pas à la référence | Rejetée (401) ou ignorée sans effet ; seule une notification valide et vérifiée auprès de GeniusPay met à jour la commande | ✅ |
 
 ---
 

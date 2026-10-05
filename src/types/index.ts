@@ -75,6 +75,8 @@ export interface Order {
   phoneNumber?: string;
   shippingAddress: string;
   paymentStatus?: PaymentStatus;
+  /** Page de paiement GeniusPay (paiement en ligne en attente) : y envoyer le client pour payer. */
+  paymentUrl?: string;
   contactPhone?: string;
   deliveryMethod?: string;
   createdAt?: string;

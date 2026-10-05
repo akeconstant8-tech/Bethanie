@@ -579,6 +579,14 @@ const App: React.FC = () => {
     return order;
   };
 
+  /** Retour de la page GeniusPay : vérification du paiement par le serveur. */
+  const checkPayment = async (orderId: string) => {
+    const order = await api.checkPayment(orderId);
+    replaceOrder(order);
+    if (order.paymentStatus === 'payé') notify(t('toast.paymentConfirmed'));
+    return order;
+  };
+
   const advance = async (orderId: string) => {
     const result = await attempt(() => api.advanceOrder(orderId));
     if (!result) return;
@@ -811,6 +819,7 @@ const App: React.FC = () => {
             onOpenProduct={openProduct}
             onAdvanceOrder={advance}
             onPayOrder={(id) => attempt(() => payOrder(id)).then(() => undefined)}
+            onCheckPayment={checkPayment}
           />
         );
 

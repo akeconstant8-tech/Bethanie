@@ -5,7 +5,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { loadUser, requireAuth, requireClientHeader } from './auth.ts';
 import { CSP_DIRECTIVES, OPENER_POLICY } from './security-policy.js';
-import { sweepUnpaidOrders } from './transactions.ts';
+import { geniusPayWebhook, sweepUnpaidOrders } from './payments.ts';
 import { config } from './config.ts';
 import { errorHandler } from './http.ts';
 import { adminRouter } from './routes/admin.ts';
@@ -26,10 +26,13 @@ export const createApp = () => {
       crossOriginOpenerPolicy: { policy: OPENER_POLICY },
     })
   );
-  app.use(express.json({ limit: '4mb' }));
+  // Corps brut conservé : la signature des notifications GeniusPay porte sur le texte exact reçu.
+  app.use(express.json({ limit: '4mb', verify: (req, _res, buf) => ((req as typeof req & { rawBody?: Buffer }).rawBody = buf) }));
   app.use(cookieParser());
 
   /* ---------- API ---------- */
+  // Notifications de paiement GeniusPay : appelées par GeniusPay (signature vérifiée), avant l'exigence X-Bethanie.
+  app.post('/api/payments/webhook/geniuspay', geniusPayWebhook);
   app.use('/api', requireClientHeader, loadUser);
   // Commandes non payées depuis 2 h : annulées et stock remis en vente (au plus une vérification par minute).
   app.use('/api', sweepUnpaidOrders);

@@ -94,6 +94,9 @@ export const api = {
   orders: () => request<{ orders: Order[] }>('GET', '/orders').then((r) => r.orders),
   createOrder: (payload: CheckoutPayload) => request<{ order: Order }>('POST', '/orders', payload).then((r) => r.order),
   payOrder: (orderId: string) => request<{ order: Order }>('POST', `/orders/${orderId}/pay`).then((r) => r.order),
+  /** Paiement en ligne : le serveur demande le statut à GeniusPay et renvoie la commande à jour. */
+  checkPayment: (orderId: string) =>
+    request<{ order: Order }>('POST', `/orders/${encodeURIComponent(orderId)}/payment/check`).then((r) => r.order),
   advanceOrder: (orderId: string) =>
     request<{ order: Order; message: string }>('POST', `/orders/${orderId}/advance`),
 

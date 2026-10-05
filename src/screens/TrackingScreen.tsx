@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavigateParams, Order, Product, ScreenType } from '../types';
 import { EmptyState, HeaderIconButton, MobileHeader, PageTitle, StatusPill, btnOutline, btnPrimary, cardClass } from '../components/ui';
 import { TranslationKey, useI18n } from '../i18n';
@@ -13,6 +13,8 @@ interface TrackingScreenProps {
   onOpenProduct: (product: Product) => void;
   onAdvanceOrder: (orderId: string) => Promise<void>;
   onPayOrder: (orderId: string) => Promise<void>;
+  /** Paiement en ligne : demande au serveur de vérifier le paiement auprès de GeniusPay. */
+  onCheckPayment?: (orderId: string) => Promise<unknown>;
   /** Mode démo du serveur : le client peut simuler l'avancement de sa commande. */
   demoMode: boolean;
 }
@@ -28,6 +30,7 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
   onOpenProduct,
   onAdvanceOrder,
   onPayOrder,
+  onCheckPayment,
   demoMode,
 }) => {
   const { t, stepLabel, paymentLabel, paymentStatusLabel } = useI18n();
@@ -95,6 +98,30 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
   }
 
   const paymentPending = order.paymentStatus === 'en_attente';
+  // Retour de la page GeniusPay (ou commande en attente) : le serveur vérifie le paiement auprès de GeniusPay,
+  // à l'arrivée puis toutes les 8 secondes pendant une minute (GeniusPay peut confirmer avec un léger délai).
+  const [checking, setChecking] = useState(false);
+  const checkPayment = useRef(onCheckPayment);
+  checkPayment.current = onCheckPayment;
+  const checkable = paymentPending && Boolean(order.paymentUrl) && Boolean(onCheckPayment);
+  useEffect(() => {
+    if (!checkable) return;
+    let alive = true;
+    let attempts = 0;
+    const check = () => {
+      attempts += 1;
+      setChecking(true);
+      checkPayment.current?.(order.id)
+        .catch(() => undefined)
+        .finally(() => alive && setChecking(false));
+    };
+    check();
+    const timer = window.setInterval(() => (attempts < 8 ? check() : window.clearInterval(timer)), 8000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [checkable, order.id]);
   const canAdvance = demoMode && !paymentPending && nextStatus(order.status) !== null;
   const delivered = order.status === 'livrée';
   const cancelled = order.status === 'annulée';
@@ -225,10 +252,13 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
                   <p className="text-sm text-amber-900 flex-1">
                     <i className="fa-solid fa-hourglass-half mr-2"></i>
-                    <strong>{t('tracking.paymentPending')}</strong> {t('tracking.paymentPendingText')}
+                    <strong>{t('tracking.paymentPending')}</strong>{' '}
+                    {checking ? t('tracking.checkingPayment') : t('tracking.paymentPendingText')}
                   </p>
                   <button
-                    onClick={() => run(() => onPayOrder(order.id))}
+                    onClick={() =>
+                      order.paymentUrl ? window.location.assign(order.paymentUrl) : run(() => onPayOrder(order.id))
+                    }
                     disabled={busy}
                     className="h-10 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold whitespace-nowrap disabled:opacity-60 cursor-pointer"
                   >

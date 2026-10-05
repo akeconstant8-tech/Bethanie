@@ -181,7 +181,7 @@ export const settleOrder = (orderId: string, event: TransactionEvent = 'commande
  * Paiement reçu (en ligne, ou à la livraison) : la commission devient acquise. À appeler dans la même transaction
  * SQLite que le passage de la commande à « payé » : tout ou rien.
  */
-export const acquireCommission = (orderId: string, how: 'en ligne' | 'à la livraison') => {
+export const acquireCommission = (orderId: string, how: 'en ligne' | 'à la livraison', extra: Record<string, unknown> = {}) => {
   db.prepare(`UPDATE order_settlements SET status = 'acquise' WHERE order_id = ?`).run(orderId);
   const problems = checkOrder(orderId);
   if (problems.length) throw new TransactionRefused(orderId, problems);
@@ -189,60 +189,59 @@ export const acquireCommission = (orderId: string, how: 'en ligne' | 'à la livr
   const commission = Number(
     (db.prepare('SELECT COALESCE(SUM(commission), 0) AS c FROM order_settlements WHERE order_id = ?').get(orderId) as Row).c
   );
-  logEvent(orderId, 'paiement', Number(order.total), commission, { mode: how });
+  logEvent(orderId, 'paiement', Number(order.total), commission, { mode: how, ...extra });
 };
 
 /**
- * Annule les commandes restées « en attente de paiement » plus de 2 heures : statut « annulée », paiement « échoué »,
- * stock remis en vente, commission annulée, événement inscrit au journal. Chaque commande est traitée en tout ou rien.
+ * Annule une commande non payée : statut « annulée », paiement « échoué », stock remis en vente, commission annulée,
+ * événement inscrit au journal ; tout ou rien. Sans effet si la commande a été payée entre-temps.
  */
+export const cancelOrder = (orderId: string, raison: string, extra: Record<string, unknown> = {}) =>
+  guarded(() => {
+    const order = db.prepare('SELECT status, payment_status FROM orders WHERE id = ?').get(orderId) as Row | undefined;
+    if (!order || order.payment_status !== 'en_attente' || order.status !== 'confirmée') return false;
+    db.prepare(`UPDATE orders SET status = 'annulée', payment_status = 'échoué' WHERE id = ?`).run(orderId);
+    db.prepare(`INSERT INTO order_events (order_id, status) VALUES (?, 'annulée')`).run(orderId);
+    const items = db.prepare('SELECT product_id, quantity FROM order_items WHERE order_id = ?').all(orderId) as Row[];
+    for (const item of items) {
+      db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(Number(item.quantity), String(item.product_id));
+    }
+    db.prepare(`UPDATE order_settlements SET status = 'annulée' WHERE order_id = ?`).run(orderId);
+    const problems = checkOrder(orderId);
+    if (problems.length) throw new TransactionRefused(orderId, problems);
+    logEvent(orderId, 'annulation', 0, 0, {
+      raison,
+      articlesRemisEnVente: items.reduce((sum, item) => sum + Number(item.quantity), 0),
+      ...extra,
+    });
+    return true;
+  });
+
+const expiredUnpaid = (now: number, withPayment: boolean) =>
+  (
+    db
+      .prepare(
+        `SELECT id FROM orders WHERE payment_status = 'en_attente' AND status = 'confirmée' AND created_at < ?
+         AND payment_reference IS ${withPayment ? 'NOT ' : ''}NULL ORDER BY created_at`
+      )
+      .all(new Date(now - UNPAID_ORDER_TTL_MS).toISOString()) as Row[]
+  ).map((r) => String(r.id));
+
+/** Commandes non payées depuis 2 heures dont le paiement est en ligne : à vérifier auprès du prestataire avant. */
+export const expiredOrdersWithPayment = (now = Date.now()) => expiredUnpaid(now, true);
+
+/** Annule les commandes non payées depuis 2 heures qui n'ont pas de paiement en ligne (simulation). */
 export const cancelUnpaidOrders = (now = Date.now()) => {
-  const limit = new Date(now - UNPAID_ORDER_TTL_MS).toISOString();
-  const expired = db
-    .prepare(`SELECT id FROM orders WHERE payment_status = 'en_attente' AND status = 'confirmée' AND created_at < ? ORDER BY created_at`)
-    .all(limit) as Row[];
   let cancelled = 0;
-  for (const { id } of expired) {
-    const orderId = String(id);
+  for (const orderId of expiredUnpaid(now, false)) {
     try {
-      guarded(() => {
-        const order = db.prepare('SELECT status, payment_status FROM orders WHERE id = ?').get(orderId) as Row;
-        if (order.payment_status !== 'en_attente' || order.status !== 'confirmée') return; // payée entre-temps
-        db.prepare(`UPDATE orders SET status = 'annulée', payment_status = 'échoué' WHERE id = ?`).run(orderId);
-        db.prepare(`INSERT INTO order_events (order_id, status) VALUES (?, 'annulée')`).run(orderId);
-        const items = db.prepare('SELECT product_id, quantity FROM order_items WHERE order_id = ?').all(orderId) as Row[];
-        for (const item of items) {
-          db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(Number(item.quantity), String(item.product_id));
-        }
-        db.prepare(`UPDATE order_settlements SET status = 'annulée' WHERE order_id = ?`).run(orderId);
-        const problems = checkOrder(orderId);
-        if (problems.length) throw new TransactionRefused(orderId, problems);
-        logEvent(orderId, 'annulation', 0, 0, {
-          raison: 'paiement non reçu sous 2 heures',
-          articlesRemisEnVente: items.reduce((sum, item) => sum + Number(item.quantity), 0),
-        });
-        cancelled += 1;
-      });
+      if (cancelOrder(orderId, 'paiement non reçu sous 2 heures')) cancelled += 1;
     } catch (error) {
       if (!(error instanceof TransactionRefused)) throw error;
     }
   }
   if (cancelled) console.log(`[controle] ${cancelled} commande(s) non payée(s) depuis 2 h annulée(s), stock remis en vente.`);
   return cancelled;
-};
-
-let lastSweep = 0;
-/** À chaque requête de l'API, au plus une fois par minute : fonctionne aussi sur Vercel (pas de tâche planifiée). */
-export const sweepUnpaidOrders = (_req: unknown, _res: unknown, next: () => void) => {
-  if (Date.now() - lastSweep > 60_000) {
-    lastSweep = Date.now();
-    try {
-      cancelUnpaidOrders();
-    } catch (error) {
-      console.error('[controle] Annulation des commandes non payées impossible :', error);
-    }
-  }
-  next();
 };
 
 /** Exécute une opération sur les commandes ; si le contrôle la refuse, l'alerte est inscrite au journal. */

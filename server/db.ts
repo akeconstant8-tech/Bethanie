@@ -174,6 +174,14 @@ if (!userColumns.some((column) => column.name === 'firebase_uid')) {
 }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid)');
 
+// Paiement en ligne (GeniusPay) : référence du paiement et adresse de la page de paiement.
+const orderColumns = db.prepare('PRAGMA table_info(orders)').all() as Row[];
+if (!orderColumns.some((column) => column.name === 'payment_reference')) {
+  db.exec('ALTER TABLE orders ADD COLUMN payment_reference TEXT');
+  db.exec('ALTER TABLE orders ADD COLUMN payment_url TEXT');
+}
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_payment_reference ON orders(payment_reference)');
+
 /* Contrôle des transactions et commission de Béthanie (RG-09, voir transactions.ts). */
 db.exec(`
   -- Répartition de chaque commande par boutique : commission de Béthanie et part du vendeur.

@@ -133,7 +133,7 @@ export const loadMe = (userId: string): Me => {
 
 /* ---------- Commandes ---------- */
 
-const toOrder = (row: Row, items: Row[], events: Row[]): Order => {
+const toOrder = (row: Row, items: Row[], events: Row[], forCustomer: boolean): Order => {
   const status = row.status as OrderStatus;
   const steps = ORDER_FLOW.map((flow) => {
     const event = events.find((e) => e.status === flow.status);
@@ -153,6 +153,8 @@ const toOrder = (row: Row, items: Row[], events: Row[]): Order => {
     createdAt: String(row.created_at),
     status,
     paymentStatus: row.payment_status as PaymentStatus,
+    // Page de paiement GeniusPay à reprendre : seulement pour le client, et tant que le paiement est attendu.
+    paymentUrl: forCustomer && row.payment_status === 'en_attente' && row.payment_url ? String(row.payment_url) : undefined,
     items: items.map((item) => ({
       product: { ...(JSON.parse(String(item.product_snapshot)) as Product), price: Number(item.unit_price) },
       quantity: Number(item.quantity),
@@ -194,7 +196,8 @@ export const loadOrders = (orderRows: Row[], onlyShopId?: string): Order[] => {
     toOrder(
       row,
       itemRows.filter((i) => i.order_id === row.id),
-      eventRows.filter((e) => e.order_id === row.id)
+      eventRows.filter((e) => e.order_id === row.id),
+      !onlyShopId
     )
   );
 };
