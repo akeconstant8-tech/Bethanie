@@ -33,8 +33,11 @@ interface CheckoutScreenProps {
   onNavigate: (screen: ScreenType, params?: NavigateParams) => void;
   onBack: () => void;
   onPlaceOrder: (details: PlaceOrderDetails) => Promise<Order>;
-  onPayOrder: (orderId: string) => Promise<Order>;
+  /** Paiement en ligne GeniusPay disponible sur le serveur ; sinon, seul le paiement à la livraison est proposé. */
+  onlinePayment: boolean;
 }
+
+const CASH_ON_DELIVERY = 'Paiement à la livraison';
 
 type PaymentStage = 'idle' | 'waiting' | 'success' | 'redirect';
 
@@ -80,7 +83,7 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
   onNavigate,
   onBack,
   onPlaceOrder,
-  onPayOrder,
+  onlinePayment,
 }) => {
   const { t, tn, rich, paymentLabel } = useI18n();
   const defaultAddress = user?.addresses.find((a) => a.default) ?? user?.addresses[0];
@@ -98,22 +101,25 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
   const [paymentPhone, setPaymentPhone] = useState(
     defaultPayment && defaultPayment.number.startsWith('+') ? defaultPayment.number : user?.phone ?? ''
   );
-  const [card, setCard] = useState({ number: '', expiry: '', cvc: '', name: user?.name ?? '' });
   const [errors, setErrors] = useState<string[]>([]);
   const [stage, setStage] = useState<PaymentStage>('idle');
-  const [placedTotal, setPlacedTotal] = useState<number | null>(null);
   const [showItems, setShowItems] = useState(false);
 
   useEffect(() => {
     if (selectedCity !== 'Abidjan' && delivery === 'express') setDelivery('standard');
   }, [selectedCity, delivery]);
 
+  // Paiement en ligne indisponible sur le serveur : seul le paiement à la livraison reste possible.
+  useEffect(() => {
+    if (!onlinePayment && payment !== CASH_ON_DELIVERY) setPayment(CASH_ON_DELIVERY);
+  }, [onlinePayment, payment]);
+
   const subtotal = cartSubtotal(cart);
   const deliveryFee = getDeliveryFee(delivery, selectedCity, subtotal);
   const discount = promo ? promo.compute(subtotal, deliveryFee) : 0;
   const total = subtotal + deliveryFee - discount;
   const paymentOption = PAYMENT_OPTIONS.find((o) => o.id === payment)!;
-  const cashOnDelivery = payment === 'Paiement à la livraison';
+  const cashOnDelivery = payment === CASH_ON_DELIVERY;
   const methodLabel = paymentLabel(payment);
   const payLabel = cashOnDelivery ? t('checkout.confirm') : t('checkout.pay', { amount: formatPrice(total) });
 
@@ -151,11 +157,6 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
     if (contactPhone.replace(/\D/g, '').length < 8) list.push(t('checkout.err.phone'));
     if (paymentOption.needsPhone && paymentPhone.replace(/\D/g, '').length < 8)
       list.push(t('checkout.err.paymentPhone', { method: methodLabel }));
-    if (payment === 'Carte bancaire') {
-      if (card.number.replace(/\s/g, '').length < 16) list.push(t('checkout.err.cardNumber'));
-      if (!/^\d{2}\/\d{2}$/.test(card.expiry)) list.push(t('checkout.err.cardExpiry'));
-      if (!/^\d{3}$/.test(card.cvc)) list.push(t('checkout.err.cvc'));
-    }
     setErrors(list);
     return list.length === 0;
   };
@@ -166,7 +167,6 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
       return;
     }
     setStage('waiting');
-    setPlacedTotal(total);
     try {
       // 1. Le serveur crée la commande (prix, stock et remises recalculés de son côté).
       const order = await onPlaceOrder({
@@ -182,19 +182,20 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
             ? { title: newAddress.title || 'Adresse', address: shippingAddress() }
             : undefined,
       });
-      setPlacedTotal(order.total);
       // 2a. Paiement en ligne (GeniusPay) : page de paiement sécurisée ; le retour se fait sur le suivi de la commande.
+      // Le paiement n'est considéré comme reçu qu'après vérification du serveur auprès de GeniusPay.
       if (order.paymentUrl) {
         setStage('redirect');
         await wait(900);
         window.location.assign(order.paymentUrl);
         return;
       }
-      // 2b. Démonstration : paiement simulé (voir server/payments.ts).
-      if (order.paymentStatus === 'en_attente') {
-        await wait(2500);
-        await onPayOrder(order.id);
+      // 2b. Paiement en ligne sans page GeniusPay (ne devrait pas arriver) : le suivi indique « paiement en attente ».
+      if (!cashOnDelivery) {
+        onNavigate('tracking', { orderId: order.id });
+        return;
       }
+      // 2c. Paiement à la livraison : commande confirmée.
       setStage('success');
       await wait(1700);
       onNavigate('tracking', { orderId: order.id });
@@ -236,8 +237,20 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
           <div className="space-y-4 stagger">
             <Section title={t('checkout.choosePayment')}>
               <div className="space-y-2.5">
+                {!onlinePayment && (
+                  <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3.5">
+                    <i className="fa-solid fa-circle-info mr-2"></i>
+                    {t('checkout.onlineUnavailable')}
+                  </p>
+                )}
                 {PAYMENT_OPTIONS.map((o) => (
-                  <ChoiceRow key={o.id} name="payment" checked={payment === o.id} onChange={() => setPayment(o.id)}>
+                  <ChoiceRow
+                    key={o.id}
+                    name="payment"
+                    checked={payment === o.id}
+                    disabled={!onlinePayment && o.id !== CASH_ON_DELIVERY}
+                    onChange={() => setPayment(o.id)}
+                  >
                     <PaymentLogo method={o.id} />
                     <span className="text-sm font-medium text-slate-800">{paymentLabel(o.id)}</span>
                     {o.id === 'Carte bancaire' && (
@@ -271,51 +284,11 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
                 )}
 
                 {payment === 'Carte bancaire' && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <input
-                      value={card.name}
-                      onChange={(e) => setCard({ ...card, name: e.target.value })}
-                      placeholder={t('checkout.cardName')}
-                      autoComplete="cc-name"
-                      className={`${inputClass} col-span-2`}
-                    />
-                    <input
-                      value={card.number}
-                      onChange={(e) =>
-                        setCard({
-                          ...card,
-                          number: e.target.value
-                            .replace(/\D/g, '')
-                            .slice(0, 16)
-                            .replace(/(.{4})/g, '$1 ')
-                            .trim(),
-                        })
-                      }
-                      inputMode="numeric"
-                      autoComplete="cc-number"
-                      placeholder={t('common.cardNumber')}
-                      className={`${inputClass} col-span-2 tabular-nums`}
-                    />
-                    <input
-                      value={card.expiry}
-                      onChange={(e) => {
-                        const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
-                        setCard({ ...card, expiry: digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits });
-                      }}
-                      inputMode="numeric"
-                      autoComplete="cc-exp"
-                      placeholder={t('checkout.cardExpiry')}
-                      className={inputClass}
-                    />
-                    <input
-                      value={card.cvc}
-                      onChange={(e) => setCard({ ...card, cvc: e.target.value.replace(/\D/g, '').slice(0, 3) })}
-                      inputMode="numeric"
-                      autoComplete="cc-csc"
-                      placeholder="CVC"
-                      className={inputClass}
-                    />
-                  </div>
+                  // La carte se saisit uniquement sur la page sécurisée de GeniusPay : jamais sur Béthanie.
+                  <p className="text-sm text-slate-600 bg-surface-light rounded-xl p-4">
+                    <i className="fa-solid fa-lock text-brand-900 mr-2"></i>
+                    {t('checkout.cardOnGeniusPay')}
+                  </p>
                 )}
 
                 {cashOnDelivery && (
@@ -533,30 +506,20 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
             ) : stage === 'waiting' ? (
               <>
                 <div className="w-16 h-16 mx-auto rounded-full border-4 border-brand-100 border-t-brand-900 animate-spin mb-5"></div>
-                <h3 className="text-lg font-semibold text-slate-900">
-                  {paymentOption.needsPhone ? t('checkout.confirmOnPhone') : t('checkout.processing')}
-                </h3>
-                <p className="text-sm text-slate-500 mt-2">
-                  {paymentOption.needsPhone
-                    ? t('checkout.requestSent', { amount: formatPrice(placedTotal ?? total), phone: paymentPhone, method: methodLabel })
-                    : t('checkout.wait')}
-                </p>
+                <h3 className="text-lg font-semibold text-slate-900">{t('checkout.processing')}</h3>
+                <p className="text-sm text-slate-500 mt-2">{t('checkout.wait')}</p>
               </>
             ) : (
+              // Seul le paiement à la livraison arrive ici : un paiement en ligne passe toujours par GeniusPay.
               <>
                 <Confetti className="absolute inset-x-0 top-[4.5rem]" />
                 <svg viewBox="0 0 80 80" className="check-draw w-20 h-20 mx-auto mb-4 animate-pop text-emerald-600" aria-hidden="true">
                   <circle cx="40" cy="40" r="36" fill="#ecfdf5" stroke="currentColor" strokeWidth="4" />
                   <path d="M24 41l10 10 23-22" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-                <h3 className="text-lg font-semibold text-slate-900">
-                  {cashOnDelivery ? t('checkout.orderConfirmed') : t('checkout.paymentAccepted')}
-                </h3>
+                <h3 className="text-lg font-semibold text-slate-900">{t('checkout.orderConfirmed')}</h3>
                 <p className="text-sm text-slate-500 mt-2">{t('checkout.redirecting')}</p>
               </>
-            )}
-            {stage !== 'redirect' && (
-              <p className="text-[10px] uppercase tracking-wider text-slate-300 font-semibold mt-6">{t('common.demoMode')}</p>
             )}
           </div>
         </div>

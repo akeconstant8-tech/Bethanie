@@ -14,10 +14,9 @@ import {
   nextStatus,
 } from '../../src/utils/commerce.ts';
 import { createGuestAccount, currentUser } from '../auth.ts';
-import { config } from '../config.ts';
 import { db } from '../db.ts';
-import { badRequest, conflict, forbidden, notFound, parse } from '../http.ts';
-import { isGeniusPay, isSimulation, publicUrl, reconcileOrderPayment, startPayment } from '../payments.ts';
+import { HttpError, badRequest, conflict, forbidden, notFound, parse } from '../http.ts';
+import { onlinePaymentReady, publicUrl, reconcileOrderPayment, startPayment } from '../payments.ts';
 import { getProduct, loadOrders } from '../serializers.ts';
 import { acquireCommission, cancelOrder, guarded, settleOrder } from '../transactions.ts';
 
@@ -94,6 +93,11 @@ const orderLimiter = rateLimit({
 ordersRouter.post('/orders', orderLimiter, async (req, res) => {
   const data = parse(CheckoutSchema, req.body);
   const payment = PAYMENT_OPTIONS.find((o) => o.id === data.paymentMethod)!;
+  const cashOnDelivery = data.paymentMethod === 'Paiement à la livraison';
+  // Refusé avant de créer quoi que ce soit (commande, stock réservé, profil invité).
+  if (!cashOnDelivery && !onlinePaymentReady()) {
+    throw new HttpError(503, 'Le paiement en ligne n’est pas encore disponible. Choisissez le paiement à la livraison.');
+  }
 
   // Achat sans compte : le nom est validé tout de suite, mais le profil n'est créé qu'une fois la
   // commande elle-même validée (stock, prix…), pour ne pas laisser de profil invité orphelin.
@@ -145,7 +149,6 @@ ordersRouter.post('/orders', orderLimiter, async (req, res) => {
     promoCode = promo.code;
   }
   const total = subtotal + deliveryFee - discount;
-  const cashOnDelivery = data.paymentMethod === 'Paiement à la livraison';
   const id = await newOrderId();
   // La commande est désormais certaine d'être créée : on peut ouvrir la session invitée sans risque
   // de profil orphelin. Jamais de connexion Google demandée ici.
@@ -177,7 +180,7 @@ ordersRouter.post('/orders', orderLimiter, async (req, res) => {
   });
 
   // Paiement en ligne : création du paiement GeniusPay ; en cas d'échec, la commande est annulée (stock rendu).
-  if (!cashOnDelivery && isGeniusPay()) {
+  if (!cashOnDelivery) {
     try {
       const started = await startPayment({
         orderId: id,
@@ -201,21 +204,6 @@ ordersRouter.post('/orders', orderLimiter, async (req, res) => {
   res.status(201).json({ order: (await loadOrders([await getOrderRow(id)]))[0] });
 });
 
-/** Paiement simulé : remplacé par le webhook de l'agrégateur en production (voir payments.ts). */
-ordersRouter.post('/orders/:id/pay', async (req, res) => {
-  const user = currentUser(req);
-  if (!isSimulation()) throw notFound();
-  const row = await getOrderRow(String(req.params.id));
-  if (row.user_id !== user.id) throw notFound('Commande introuvable.');
-  if (row.payment_status === 'en_attente') {
-    await guarded(async () => {
-      await db.run(`UPDATE orders SET payment_status = 'payé' WHERE id = ?`, String(row.id));
-      await acquireCommission(String(row.id), 'en ligne');
-    });
-  }
-  res.json({ order: (await loadOrders([await getOrderRow(String(row.id))]))[0] });
-});
-
 // Chaque vérification interroge GeniusPay : le suivi en fait au plus 9 par commande ; 30 par minute et par compte
 // laissent de la marge sans permettre de saturer GeniusPay (qui pourrait alors bloquer Béthanie).
 const paymentCheckLimiter = rateLimit({
@@ -237,8 +225,8 @@ ordersRouter.post('/orders/:id/payment/check', paymentCheckLimiter, async (req, 
 });
 
 /**
- * Fait avancer une commande d'une étape. Autorisé pour : un vendeur dont un produit figure
- * dans la commande, un administrateur, ou le client lui-même en mode démo.
+ * Fait avancer une commande d'une étape. Autorisé pour : un vendeur dont un produit figure dans la commande, ou un
+ * administrateur. Jamais le client (une commande payée à la livraison deviendrait « payée » sans paiement).
  */
 ordersRouter.post('/orders/:id/advance', async (req, res) => {
   const user = currentUser(req);
@@ -246,7 +234,7 @@ ordersRouter.post('/orders/:id/advance', async (req, res) => {
   const shop = await shopOf(user.id);
   const isSeller = shop ? await orderHasShop(String(row.id), String(shop.id)) : false;
   const isOwner = row.user_id === user.id;
-  if (!isSeller && user.role !== 'admin' && !(config.demoMode && isOwner)) {
+  if (!isSeller && user.role !== 'admin') {
     throw isOwner ? forbidden('Seul le vendeur peut faire avancer la commande.') : notFound('Commande introuvable.');
   }
   if (row.status === 'annulée') throw conflict('Cette commande a été annulée.');

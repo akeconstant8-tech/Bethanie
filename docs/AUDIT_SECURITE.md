@@ -108,7 +108,7 @@ Contexte : achat sans compte (profil invité ouvert à la commande), paiement r�
 
 | ID | Gravité | Constat | Correction proposée |
 |---|---|---|---|
-| C1 (suite) | Critique | En ligne, `DEMO_MODE=true` : le client peut faire avancer **sa propre** commande jusqu’à « livrée », ce qui marque payée une commande « paiement à la livraison » et compte une commission fictive — désormais sans même avoir de compte | `DEMO_MODE=false` dans Vercel dès que les tests de démonstration sont finis |
+| C1 (suite) | ~~Critique~~ **Corrigé le 7 octobre 2026** | Le client pouvait faire avancer **sa propre** commande jusqu’à « livrée » (mode démo) et déclarer sa commande payée (route de paiement simulé) | Simulation et mode démo **supprimés** du code : seuls GeniusPay (statut revérifié auprès de GeniusPay) ou le vendeur à la livraison marquent une commande payée ; seul le vendeur ou l’administrateur fait avancer une commande |
 | M5 | Moyenne | Achat sans compte : une commande « paiement à la livraison » ne s’annule jamais d’elle-même ; quelqu’un qui change d’adresse IP peut bloquer du stock (10 commandes/heure par adresse, jusqu’à 99 articles par ligne) | Décision du porteur : quantité maximale par commande invitée, confirmation par SMS/WhatsApp, ou annulation automatique si le vendeur ne confirme pas |
 | F6 | Faible | Commandes d’un client et d’une boutique renvoyées sans pagination (limitées à son propre compte) | Pagination quand les volumes le justifieront |
 
@@ -130,4 +130,5 @@ Contexte : achat sans compte (profil invité ouvert à la commande), paiement r�
 | `ADMIN_EMAILS` | Adresses Google des administrateurs (séparées par des virgules) |
 | `TRANSACTIONS_SECRET` | Clé secrète du sceau du journal (longue chaîne aléatoire, à ne jamais changer ensuite) |
 | `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | Refus des comptes Google désactivés (M3) |
-| `DEMO_MODE=false`, `PAYMENT_PROVIDER` | Le jour où le paiement réel est branché (C1) |
+| `GENIUSPAY_SECRET_KEY` (`sk_live_…`), `GENIUSPAY_WEBHOOK_SECRET` | Paiement réel (la clé `sk_sandbox_…` ne fait circuler aucun argent) |
+| `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | Données permanentes (sinon effacées à chaque redémarrage sur Vercel) |

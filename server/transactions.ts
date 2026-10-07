@@ -245,7 +245,7 @@ const expiredUnpaid = async (now: number, withPayment: boolean) =>
 /** Commandes non payées depuis 2 heures dont le paiement est en ligne : à vérifier auprès du prestataire avant. */
 export const expiredOrdersWithPayment = (now = Date.now()) => expiredUnpaid(now, true);
 
-/** Annule les commandes non payées depuis 2 heures qui n'ont pas de paiement en ligne (simulation). */
+/** Annule les commandes non payées depuis 2 heures dont le paiement GeniusPay n'a jamais été créé (filet de sécurité). */
 export const cancelUnpaidOrders = async (now = Date.now()) => {
   let cancelled = 0;
   for (const orderId of await expiredUnpaid(now, false)) {

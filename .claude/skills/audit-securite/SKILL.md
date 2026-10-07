@@ -35,8 +35,9 @@ Dernier rapport : `docs/AUDIT_SECURITE.md` (à mettre à jour à chaque audit, c
 Pour chaque point, noter : gravité (Critique / Élevée / Moyenne / Faible / Info), preuve (fichier:ligne, commande,
 réponse HTTP), conséquence concrète pour Béthanie, correction proposée, statut.
 
-1. **Argent** : prix et montants recalculés côté serveur ; paiements (route simulée `/orders/:id/pay`, `DEMO_MODE`,
-   `PAYMENT_PROVIDER`) ; codes promo (réutilisation) ; stock réservé par des commandes non payées ; commission (§1).
+1. **Argent** : prix et montants recalculés côté serveur ; paiements (GeniusPay seul, aucune simulation ni mode démo ;
+   statut toujours revérifié auprès de GeniusPay ; notifications signées) ; codes promo (réutilisation) ; stock réservé
+   par des commandes non payées ; commission (§1).
 2. **Comptes et sessions** : vérification des jetons Google (`server/firebase.ts`), liaison par e-mail, rôle admin
    (`ADMIN_EMAILS`), cookie `bethanie_session` (HttpOnly, Secure, SameSite), expiration, déconnexion.
 3. **Droits** : chaque route vérifie le propriétaire (commande, produit, boutique) ; vendeurs multi-boutiques (RG-10) ;
@@ -57,4 +58,4 @@ réponse HTTP), conséquence concrète pour Béthanie, correction proposée, sta
 - Ne jamais tester sur la base réelle (`server/data/`) ni sur le site en ligne autrement qu'en lecture (GET, `curl -I`).
 - Ne jamais afficher un secret ; signaler seulement sa présence ou son absence.
 - Corriger sans demander ce qui est sûr et sans effet sur les fonctionnalités (en-têtes, contrôles) ; demander avant
-  ce qui change une règle de gestion (codes promo, délais, rôles) ou supprime une fonction (paiement simulé).
+  ce qui change une règle de gestion (codes promo, délais, rôles) ou supprime une fonction.

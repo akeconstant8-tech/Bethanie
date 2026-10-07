@@ -26,7 +26,8 @@ description: Mise en ligne de Béthanie sur Vercel (site + API Express en foncti
 | `FIREBASE_PROJECT_ID` | Non (repli sur `VITE_FIREBASE_PROJECT_ID`) | Vérification des jetons Google |
 | `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | Non | Secrets ; refus des comptes Google désactivés |
 | `ANTHROPIC_API_KEY` | Non (sinon assistant « non activé ») | Secret ; assistant vendeur (Claude) |
-| `DEMO_MODE`, `PAYMENT_PROVIDER` | Non | Paiements simulés par défaut |
+| `GENIUSPAY_SECRET_KEY`, `GENIUSPAY_WEBHOOK_SECRET` | Oui (paiement en ligne) | Secrets ; sans la clé, seul le paiement à la livraison est proposé (aucune simulation) |
+| `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | Oui (données permanentes) | Secret (jeton) ; sans elles, base temporaire dans `/tmp` |
 
 `COOKIE_SECURE` et `DATA_DIR` sont posés automatiquement dans la fonction. Modèle complet : `.env.example`.
 

@@ -90,7 +90,8 @@ const tursoEngine = (url: string, authToken: string | undefined): Engine => {
   // Lignes en objets simples (colonne → valeur), comme le moteur local.
   const rows = (rs: ResultSet): Row[] => rs.rows.map((row) => Object.fromEntries(rs.columns.map((name, i) => [name, row[i]])));
   return {
-    label: `Turso (${new URL(url.replace(/^libsql:/, 'https:')).host})`,
+    // Ni l'adresse de la base ni le jeton n'apparaissent dans les journaux.
+    label: 'Turso (base hébergée)',
     all: async (sql, args) => rows(await target().execute({ sql, args })),
     run: async (sql, args) => ({ changes: (await target().execute({ sql, args })).rowsAffected }),
     script: (sql) => target().executeMultiple(sql),

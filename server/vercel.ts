@@ -9,12 +9,15 @@
  */
 import { createApp } from './app.ts';
 import { databaseLabel, hostedDatabase } from './db.ts';
+import { describePaymentSetup } from './payments.ts';
 
+// Journal sans aucune information de connexion : ni adresse de la base, ni nom de variable secrète.
 console.log(
   hostedDatabase
     ? `[api] Base de données permanente : ${databaseLabel}.`
-    : '[api] Attention : base de données TEMPORAIRE (/tmp, effacée au redémarrage) — définir TURSO_DATABASE_URL et TURSO_AUTH_TOKEN.'
+    : '[api] Attention : base de données TEMPORAIRE (/tmp, effacée au redémarrage) — configurer la base Turso (voir .env.example).'
 );
+console.log(`[api] ${describePaymentSetup()}`);
 
 // Les données sont préparées avant la première réponse de l'API (voir createApp et startup.ts).
 const app = createApp();

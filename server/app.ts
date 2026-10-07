@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { loadUser, requireAuth, requireClientHeader } from './auth.ts';
 import { CSP_DIRECTIVES, OPENER_POLICY } from './security-policy.js';
-import { geniusPayWebhook, sweepUnpaidOrders } from './payments.ts';
+import { geniusPayWebhook, onlinePaymentReady, sweepUnpaidOrders } from './payments.ts';
 import { config } from './config.ts';
 import { errorHandler } from './http.ts';
 import { adminRouter } from './routes/admin.ts';
@@ -60,8 +60,9 @@ export const createApp = () => {
   // Commandes non payées depuis 2 h : annulées et stock remis en vente (au plus une vérification par minute).
   app.use('/api', sweepUnpaidOrders);
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
+  // Seul réglage utile au site : le paiement en ligne est-il disponible (sinon, paiement à la livraison uniquement).
   app.get('/api/config', (_req, res) =>
-    res.json({ demoMode: config.demoMode, paymentProvider: config.paymentProvider })
+    res.json({ onlinePayment: onlinePaymentReady() })
   );
   app.use('/api/auth', authRouter);
   app.use('/api/me', requireAuth, meRouter);

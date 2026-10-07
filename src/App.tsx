@@ -144,10 +144,12 @@ const App: React.FC = () => {
   // Données du serveur
   const [products, setProducts] = useState<Product[]>([]);
   const [catalogStatus, setCatalogStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [config, setConfig] = useState<ApiConfig>({ demoMode: true, paymentProvider: 'simulation' });
+  const [config, setConfig] = useState<ApiConfig>({ onlinePayment: true });
   const [me, setMe] = useState<Me | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
+  // Liste des commandes reçue du serveur : le suivi attend ce moment (retour de GeniusPay sur #/suivi/…).
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
   const [sellerOrders, setSellerOrders] = useState<Order[]>([]);
 
   // Données gardées dans le navigateur (utilisables sans compte)
@@ -254,9 +256,19 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!meId) {
       setOrders([]);
+      setOrdersLoaded(true);
       return;
     }
-    api.orders().then(setOrders).catch(() => undefined);
+    setOrdersLoaded(false);
+    let alive = true;
+    api
+      .orders()
+      .then((list) => alive && setOrders(list))
+      .catch(() => undefined)
+      .finally(() => alive && setOrdersLoaded(true));
+    return () => {
+      alive = false;
+    };
   }, [meId]);
 
   const shopId = me?.shop?.id;
@@ -581,12 +593,6 @@ const App: React.FC = () => {
 
   const replaceOrder = (order: Order) => setOrders((list) => list.map((o) => (o.id === order.id ? order : o)));
 
-  const payOrder = async (orderId: string) => {
-    const order = await api.payOrder(orderId);
-    replaceOrder(order);
-    return order;
-  };
-
   /** Retour de la page GeniusPay : vérification du paiement par le serveur. */
   const checkPayment = async (orderId: string) => {
     const order = await api.checkPayment(orderId);
@@ -811,22 +817,20 @@ const App: React.FC = () => {
             onNavigate={navigate}
             onBack={() => goBack('cart')}
             onPlaceOrder={placeOrder}
-            onPayOrder={payOrder}
+            onlinePayment={config.onlinePayment}
           />
         );
 
       case 'tracking':
+        if (!ordersLoaded) return <PageSkeleton />;
         return (
           <TrackingScreen
             orders={orders}
             orderId={params.orderId}
             newOrderId={newOrderId}
-            demoMode={config.demoMode}
             onNavigate={navigate}
             onBack={() => goBack('account', { tab: 'orders' })}
             onOpenProduct={openProduct}
-            onAdvanceOrder={advance}
-            onPayOrder={(id) => attempt(() => payOrder(id)).then(() => undefined)}
             onCheckPayment={checkPayment}
           />
         );

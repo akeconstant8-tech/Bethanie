@@ -1,9 +1,8 @@
-/* Paiements en ligne — GeniusPay (https://geniuspay.ci/docs/api).
+/* Paiements en ligne — GeniusPay (https://geniuspay.ci/docs/api), seul moyen de paiement en ligne de Béthanie.
  *
- * Fournisseurs :
- *  - « geniuspay » (dès que GENIUSPAY_SECRET_KEY est défini, sauf PAYMENT_PROVIDER=simulation) : Wave, Orange Money,
- *    MTN, Moov, cartes, sur la page sécurisée de GeniusPay ; aucune donnée de carte ne transite par Béthanie ;
- *  - « simulation » : démonstration, le client confirme lui-même (route POST /orders/:id/pay).
+ * Wave, Orange Money, MTN, Moov et cartes, sur la page sécurisée de GeniusPay ; aucune donnée de carte ne transite
+ * par Béthanie. Sans GENIUSPAY_SECRET_KEY, le paiement en ligne est indisponible : seul le paiement à la livraison
+ * est proposé. Il n'existe aucune autre façon de marquer une commande payée (pas de paiement simulé).
  *
  * Parcours : la commande est créée (paiement « en attente »), puis le paiement GeniusPay ; le client est envoyé sur
  * la page de paiement. Au retour (page de suivi) et à chaque notification signée de GeniusPay (webhook), le serveur
@@ -15,9 +14,9 @@
  */
 import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
-import { config } from './config.ts';
 import { db } from './db.ts';
 import { HttpError } from './http.ts';
+import { describeError, redact } from './logs.ts';
 import {
   TransactionRefused,
   acquireCommission,
@@ -30,8 +29,17 @@ import {
 
 const GENIUSPAY_API = 'https://geniuspay.ci/api/v1/merchant';
 
-export const isSimulation = () => config.paymentProvider === 'simulation';
-export const isGeniusPay = () => config.paymentProvider === 'geniuspay';
+/** Paiement en ligne disponible : clé GeniusPay présente sur le serveur. */
+export const onlinePaymentReady = () => Boolean(process.env.GENIUSPAY_SECRET_KEY?.trim());
+
+/** Pour les journaux de démarrage : type de clé (jamais sa valeur). */
+export const describePaymentSetup = () => {
+  const key = process.env.GENIUSPAY_SECRET_KEY?.trim() ?? '';
+  if (!key) return 'Paiement en ligne GeniusPay non configuré : seul le paiement à la livraison est proposé.';
+  if (key.startsWith('sk_live_')) return 'Paiement en ligne GeniusPay actif (production : paiements réels).';
+  if (key.startsWith('sk_sandbox_')) return 'Paiement en ligne GeniusPay actif en BAC À SABLE (aucun argent réel ne circule).';
+  return 'Paiement en ligne GeniusPay : clé de format inattendu (attendu : sk_live_… ou sk_sandbox_…).';
+};
 
 /** Moyens de paiement de Béthanie → codes GeniusPay (« payment_method »). */
 const METHOD_CODES: Record<string, string> = {
@@ -81,7 +89,7 @@ const geniusPay = async <T>(method: 'GET' | 'POST', path: string, body?: unknown
     });
   } catch (error) {
     if (error instanceof HttpError) throw error;
-    console.error(`[api] GeniusPay injoignable (${method} ${path}) :`, error instanceof Error ? error.message : error);
+    console.error(`[api] GeniusPay injoignable (${method} ${path}) :`, describeError(error));
     throw new HttpError(502, 'Le service de paiement ne répond pas. Réessayez dans un instant.');
   }
   const json = (await response.json().catch(() => null)) as { success?: boolean; data?: T; error?: unknown } | null;
@@ -89,8 +97,9 @@ const geniusPay = async <T>(method: 'GET' | 'POST', path: string, body?: unknown
     // Code et message d'erreur seulement : la réponse complète peut reprendre nom, téléphone et e-mail du client.
     const error = json?.error as { code?: unknown; message?: unknown } | string | undefined;
     const detail = typeof error === 'string' ? error : [error?.code, error?.message].filter(Boolean).map(String).join(' — ');
-    console.error(`[api] GeniusPay ${method} ${path} : ${response.status} ${detail.slice(0, 200) || 'réponse inattendue'}`);
-    const Refusal = response.status < 500 ? GeniusPayRefused : HttpError;
+    console.error(`[api] GeniusPay ${method} ${path} : ${response.status} ${redact(detail.slice(0, 200)) || 'réponse inattendue'}`);
+    // Clé refusée (401, 403) : un nouvel essai échouerait pareil ; seul un refus de la demande elle-même est réessayé.
+    const Refusal = response.status < 500 && response.status !== 401 && response.status !== 403 ? GeniusPayRefused : HttpError;
     throw new Refusal(response.status === 404 ? 404 : 502, 'Le service de paiement a refusé la demande. Réessayez ou choisissez le paiement à la livraison.');
   }
   return json.data;
@@ -293,11 +302,11 @@ export const sweepUnpaidOrders = async (_req: unknown, _res: unknown, next: () =
       for (const id of await expiredOrdersWithPayment()) {
         // Paiement GeniusPay : on demande d'abord à GeniusPay (le client a peut-être payé).
         reconcileOrderPayment(id, { cancelIfPending: true }).catch((error) =>
-          console.error(`[controle] Vérification du paiement de ${id} impossible :`, error instanceof Error ? error.message : error)
+          console.error(`[controle] Vérification du paiement de ${id} impossible :`, describeError(error))
         );
       }
     } catch (error) {
-      console.error('[controle] Annulation des commandes non payées impossible :', error);
+      console.error('[controle] Annulation des commandes non payées impossible :', describeError(error));
     }
   }
   next();

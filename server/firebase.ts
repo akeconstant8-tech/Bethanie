@@ -15,6 +15,7 @@
 import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getAuth, type Auth, type DecodedIdToken } from 'firebase-admin/auth';
 import { HttpError } from './http.ts';
+import { describeError, redact } from './logs.ts';
 
 type FirebaseStatus =
   | { ready: false; missing: string[] }
@@ -87,10 +88,8 @@ const firebaseAuth = () => {
       );
       checkRevoked = true;
     } catch (error) {
-      console.error(
-        '[api] FIREBASE_PRIVATE_KEY ou FIREBASE_CLIENT_EMAIL illisible ; vérification sans compte de service.',
-        error instanceof Error ? error.message : ''
-      );
+      // Le message d'erreur de la bibliothèque est masqué : il pourrait reprendre une partie de la clé lue.
+      console.error('[api] Compte de service Firebase illisible ; vérification sans compte de service.', describeError(error));
     }
   }
   app ??= initializeApp({ projectId: status.projectId }, 'bethanie-auth');
@@ -121,7 +120,7 @@ export const verifyGoogleIdToken = async (idToken: string): Promise<DecodedIdTok
           'Vérifiez que FIREBASE_PROJECT_ID et VITE_FIREBASE_PROJECT_ID désignent le même projet.'
       );
     } else {
-      console.error(`[api] Jeton Google refusé (${code || 'erreur'}) : ${detail.split('\n')[0].slice(0, 200)}`);
+      console.error(`[api] Jeton Google refusé (${code || 'erreur'}) : ${redact(detail.split('\n')[0].slice(0, 200))}`);
     }
     if (code.startsWith('auth/')) throw new HttpError(401, 'La connexion Google a échoué. Réessayez.');
     throw new HttpError(502, 'Le service de connexion Google ne répond pas. Réessayez dans un instant.');

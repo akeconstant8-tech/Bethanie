@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { NavigateParams, Order, Product, ScreenType } from '../types';
 import { EmptyState, HeaderIconButton, MobileHeader, PageTitle, StatusPill, btnOutline, btnPrimary, cardClass } from '../components/ui';
 import { TranslationKey, useI18n } from '../i18n';
-import { ORDER_FLOW, formatPrice, nextStatus } from '../utils/commerce';
+import { ORDER_FLOW, formatPrice } from '../utils/commerce';
 
 interface TrackingScreenProps {
   orders: Order[];
@@ -11,12 +11,8 @@ interface TrackingScreenProps {
   onNavigate: (screen: ScreenType, params?: NavigateParams) => void;
   onBack: () => void;
   onOpenProduct: (product: Product) => void;
-  onAdvanceOrder: (orderId: string) => Promise<void>;
-  onPayOrder: (orderId: string) => Promise<void>;
   /** Paiement en ligne : demande au serveur de vérifier le paiement auprès de GeniusPay. */
   onCheckPayment?: (orderId: string) => Promise<unknown>;
-  /** Mode démo du serveur : le client peut simuler l'avancement de sa commande. */
-  demoMode: boolean;
 }
 
 const SUPPORT_EMAIL = 'mailto:contact@bethanie.ci';
@@ -28,27 +24,43 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
   onNavigate,
   onBack,
   onOpenProduct,
-  onAdvanceOrder,
-  onPayOrder,
   onCheckPayment,
-  demoMode,
 }) => {
   const { t, stepLabel, paymentLabel, paymentStatusLabel } = useI18n();
   const [query, setQuery] = useState('');
   const [searchError, setSearchError] = useState('');
-  const [busy, setBusy] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
 
-  const run = async (action: () => Promise<void>) => {
-    setBusy(true);
-    try {
-      await action();
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const order = orders.find((o) => o.id === orderId) ?? orders[0];
+
+  // Tous les « hooks » avant le moindre return : la commande peut n'arriver qu'après le premier affichage
+  // (retour de GeniusPay), et React plante si leur nombre change d'un affichage à l'autre.
+  const paymentPending = order?.paymentStatus === 'en_attente';
+  // Retour de la page GeniusPay (ou commande en attente) : le serveur vérifie le paiement auprès de GeniusPay,
+  // à l'arrivée puis toutes les 8 secondes pendant une minute (GeniusPay peut confirmer avec un léger délai).
+  const [checking, setChecking] = useState(false);
+  const checkPayment = useRef(onCheckPayment);
+  checkPayment.current = onCheckPayment;
+  const checkable = Boolean(order) && paymentPending && Boolean(order?.paymentUrl) && Boolean(onCheckPayment);
+  const checkedOrderId = order?.id;
+  useEffect(() => {
+    if (!checkable || !checkedOrderId) return;
+    let alive = true;
+    let attempts = 0;
+    const check = () => {
+      attempts += 1;
+      setChecking(true);
+      checkPayment.current?.(checkedOrderId)
+        .catch(() => undefined)
+        .finally(() => alive && setChecking(false));
+    };
+    check();
+    const timer = window.setInterval(() => (attempts < 8 ? check() : window.clearInterval(timer)), 8000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [checkable, checkedOrderId]);
 
   const search = (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,32 +109,6 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
     );
   }
 
-  const paymentPending = order.paymentStatus === 'en_attente';
-  // Retour de la page GeniusPay (ou commande en attente) : le serveur vérifie le paiement auprès de GeniusPay,
-  // à l'arrivée puis toutes les 8 secondes pendant une minute (GeniusPay peut confirmer avec un léger délai).
-  const [checking, setChecking] = useState(false);
-  const checkPayment = useRef(onCheckPayment);
-  checkPayment.current = onCheckPayment;
-  const checkable = paymentPending && Boolean(order.paymentUrl) && Boolean(onCheckPayment);
-  useEffect(() => {
-    if (!checkable) return;
-    let alive = true;
-    let attempts = 0;
-    const check = () => {
-      attempts += 1;
-      setChecking(true);
-      checkPayment.current?.(order.id)
-        .catch(() => undefined)
-        .finally(() => alive && setChecking(false));
-    };
-    check();
-    const timer = window.setInterval(() => (attempts < 8 ? check() : window.clearInterval(timer)), 8000);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-  }, [checkable, order.id]);
-  const canAdvance = demoMode && !paymentPending && nextStatus(order.status) !== null;
   const delivered = order.status === 'livrée';
   const cancelled = order.status === 'annulée';
   const paymentFailed = cancelled && order.cancelReason === 'paiement_echoue';
@@ -259,15 +245,15 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
                     <strong>{t('tracking.paymentPending')}</strong>{' '}
                     {checking ? t('tracking.checkingPayment') : t('tracking.paymentPendingText')}
                   </p>
-                  <button
-                    onClick={() =>
-                      order.paymentUrl ? window.location.assign(order.paymentUrl) : run(() => onPayOrder(order.id))
-                    }
-                    disabled={busy}
-                    className="h-10 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold whitespace-nowrap disabled:opacity-60 cursor-pointer"
-                  >
-                    {t('tracking.finishPayment')}
-                  </button>
+                  {order.paymentUrl && (
+                    // Seule façon de payer : la page sécurisée de GeniusPay.
+                    <a
+                      href={order.paymentUrl}
+                      className="h-10 px-4 inline-flex items-center rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold whitespace-nowrap cursor-pointer"
+                    >
+                      {t('tracking.finishPayment')}
+                    </a>
+                  )}
                 </div>
               ) : (
                 <p
@@ -331,21 +317,6 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({
                 {showDetails ? t('tracking.hideDetails') : t('tracking.showDetails')}
               </button>
 
-              {canAdvance && (
-                <div className="mt-4 pt-4 border-t border-dashed border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-xs text-slate-400">
-                    <i className="fa-solid fa-flask mr-1.5"></i>
-                    {t('tracking.demoNote')}
-                  </p>
-                  <button
-                    onClick={() => run(() => onAdvanceOrder(order.id))}
-                    disabled={busy}
-                    className="h-9 px-4 rounded-xl border border-slate-200 hover:border-brand-900 text-xs font-semibold text-slate-700 cursor-pointer"
-                  >
-                    {t('tracking.simulate')} <i className="fa-solid fa-forward ml-1"></i>
-                  </button>
-                </div>
-              )}
             </section>
 
             <div className={`${showDetails ? 'grid animate-rise-in' : 'hidden'} lg:grid grid-cols-1 md:grid-cols-5 gap-4 lg:gap-6`}>

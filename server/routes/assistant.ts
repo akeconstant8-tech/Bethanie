@@ -19,6 +19,7 @@ import { STATUS_LABELS, nextStatus } from '../../src/utils/commerce.ts';
 import { currentUser } from '../auth.ts';
 import { db, type Row } from '../db.ts';
 import { HttpError, forbidden, parse } from '../http.ts';
+import { redact } from '../logs.ts';
 import { CATEGORY_IDS } from './catalog.ts';
 
 export const assistantRouter = Router();
@@ -338,7 +339,7 @@ assistantRouter.post('/', limiter, async (req, res) => {
       throw new HttpError(429, 'L’assistant est très sollicité. Réessayez dans une minute.');
     }
     if (error instanceof Anthropic.APIError) {
-      console.error(`[api] Assistant vendeur : erreur de l’API Claude (${error.status ?? 'réseau'}) : ${error.message.slice(0, 200)}`);
+      console.error(`[api] Assistant vendeur : erreur de l’API Claude (${error.status ?? 'réseau'}) : ${redact(error.message.slice(0, 200))}`);
       throw new HttpError(502, 'L’assistant ne répond pas pour le moment. Réessayez dans un instant.');
     }
     throw error;

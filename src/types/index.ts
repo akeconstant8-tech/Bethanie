@@ -230,8 +230,8 @@ export interface CheckoutPayload {
 }
 
 export interface ApiConfig {
-  demoMode: boolean;
-  paymentProvider: string;
+  /** Paiement en ligne GeniusPay disponible ; sinon, seul le paiement à la livraison est proposé. */
+  onlinePayment: boolean;
 }
 
 /** Proposition de l'assistant vendeur, à confirmer par le vendeur (voir server/routes/assistant.ts). */

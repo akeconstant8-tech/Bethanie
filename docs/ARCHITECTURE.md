@@ -172,7 +172,7 @@ flowchart TB
 │  ├─ http.ts                 erreurs HTTP, validation, gestionnaire d’erreurs
 │  ├─ serializers.ts          lignes SQL → objets au format du frontend
 │  ├─ uploads.ts              enregistrement et contrôle des photos
-│  ├─ payments.ts             point d’entrée des paiements (simulation)
+│  ├─ payments.ts             point d’entrée des paiements (GeniusPay)
 │  ├─ routes/                 auth.ts, me.ts, catalog.ts, orders.ts
 │  ├─ seed.ts, seed-data.ts   données de démonstration
 │  ├─ reset.ts                suppression de la base (npm run db:reset)
@@ -486,7 +486,7 @@ flowchart LR
 | `routes/catalog.ts` | Liste et fiche produits, avis, boutiques, création de boutique, gestion des produits par le vendeur |
 | `routes/orders.ts` | Création de commande (recalcul + réservation de stock), démarrage du paiement, vérification au retour, avancement, vue vendeur |
 | `serializers.ts` | Construit les objets `Product`, `Order`, `Me`, `Shop`, `Review` attendus par le frontend |
-| `payments.ts` | Paiement en ligne GeniusPay : démarrage, rapprochement (toujours revérifié auprès de GeniusPay, jamais sur la foi du webhook ou du navigateur), notifications signées (HMAC-SHA256), repli `simulation` sans `GENIUSPAY_SECRET_KEY` |
+| `payments.ts` | Paiement en ligne GeniusPay : démarrage, rapprochement (toujours revérifié auprès de GeniusPay, jamais sur la foi du webhook ou du navigateur), notifications signées (HMAC-SHA256) ; sans `GENIUSPAY_SECRET_KEY`, paiement à la livraison uniquement (aucune simulation) |
 | `uploads.ts` | Décodage, vérification du format réel et écriture des photos |
 
 ### 5.3 Conventions de l’API
@@ -513,9 +513,8 @@ flowchart LR
 | POST | `/shops` | connecté (une boutique par compte) |
 | POST / PATCH / DELETE | `/products`, `/products/:id` | vendeur propriétaire |
 | GET / POST | `/orders`, `/orders/:id` | client propriétaire |
-| POST | `/orders/:id/pay` | client propriétaire, mode simulation uniquement |
 | POST | `/orders/:id/payment/check` | client propriétaire ; redemande le statut à GeniusPay et met à jour la commande |
-| POST | `/orders/:id/advance` | vendeur concerné, administrateur, ou client en mode démo |
+| POST | `/orders/:id/advance` | vendeur concerné ou administrateur (jamais le client) |
 | POST | `/payments/webhook/geniuspay` | public, signature HMAC-SHA256 vérifiée (`X-Webhook-Signature`, `X-Webhook-Timestamp`, 5 min) |
 | GET | `/admin/transactions` | administrateur (`ADMIN_EMAILS`) |
 | POST | `/seller/assistant` | vendeur connecté ayant une boutique ; 40 questions / 15 min ; 503 sans `ANTHROPIC_API_KEY` |
@@ -673,7 +672,7 @@ sequenceDiagram
   A->>A: contrôles (tailles, couleurs, stock, ville) et recalcul des montants
   A->>D: transaction : commande + articles + stock diminué + étape « confirmée »
   A-->>F: 201 commande (paiement en_attente)
-  Note over F,A: Paiement en ligne (GeniusPay) : A crée le paiement chez GeniusPay et renvoie<br/>sa page sécurisée ; sans GENIUSPAY_SECRET_KEY, repli sur la simulation ci-dessous.
+  Note over F,A: Paiement en ligne (GeniusPay) : A crée le paiement chez GeniusPay et renvoie<br/>sa page sécurisée ; sans GENIUSPAY_SECRET_KEY, paiement à la livraison uniquement.
   F->>C: redirection vers la page de paiement GeniusPay
   C->>A: retour sur le suivi de commande
   F->>A: POST /api/orders/:id/payment/check
@@ -772,9 +771,7 @@ Sans photo, une image neutre (`/images/placeholder-product.svg`) est utilisée.
 | `DATA_DIR` | `server/data` | Dossier de la base et des photos |
 | `DB_PATH` | `<DATA_DIR>/bethanie.db` | Chemin du fichier SQLite |
 | `COOKIE_SECURE` | `false` | `true` derrière HTTPS (cookie envoyé uniquement en chiffré) |
-| `DEMO_MODE` | `true` | `false` interdit au client de faire avancer lui-même sa commande |
-| `PAYMENT_PROVIDER` | auto (`geniuspay` si `GENIUSPAY_SECRET_KEY` est défini, sinon `simulation`) | Fournisseur de paiement |
-| `GENIUSPAY_SECRET_KEY` | — | Secrète : clé du compte marchand GeniusPay (`sk_sandbox_…` ou `sk_live_…`) |
+| `GENIUSPAY_SECRET_KEY` | — | Secrète : clé du compte marchand GeniusPay (`sk_sandbox_…` ou `sk_live_…`) ; sans elle, paiement à la livraison uniquement |
 | `GENIUSPAY_WEBHOOK_SECRET` | — | Secrète : vérification des notifications GeniusPay (`whsec_…`) |
 | `PUBLIC_URL` | déduite de la requête | Adresse publique du site, pour le retour après paiement GeniusPay |
 | `API_URL` (Vite) | `http://localhost:4000` | Cible du proxy de développement |
@@ -825,7 +822,7 @@ définir ces variables dans l’environnement de la plateforme. Ne jamais publie
 | L9 | Notes et nombres d’avis des produits de démo repris de la maquette | Un produit annonce « 124 avis » mais n’en a que 3 en base | Sans objet en production (données réelles) |
 | L10 | Photos sur le disque local | À inclure dans les sauvegardes ; non partagées entre serveurs | Stockage objet (S3 ou équivalent) si plusieurs serveurs |
 | L11 | Aucun test automatisé dans le dépôt | Régressions possibles | Tests d’API (`node:test`) et parcours d’achat (Playwright) en intégration continue |
-| L12 | Paiement GeniusPay en environnement sandbox (`sk_sandbox_…`) : aucun argent réel ne circule | La commission « perçue » dans le rapport administrateur est fictive tant que la clé reste sandbox | Remplacer par une clé `sk_live_…` (compte marchand GeniusPay actif) ; retirer `/orders/:id/pay` (simulation) une fois la bascule faite |
+| L12 | Paiement GeniusPay en environnement sandbox (`sk_sandbox_…`) : aucun argent réel ne circule | La commission « perçue » dans le rapport administrateur est fictive tant que la clé reste sandbox | Remplacer par une clé `sk_live_…` (compte marchand GeniusPay actif). La simulation a été supprimée le 7 octobre 2026 |
 | L13 | Connexion par téléphone de la maquette non branchée ; connexion Google dépend de la configuration de chaque environnement | Sans les variables `VITE_FIREBASE_*` (site) la fenêtre Google ne s’ouvre pas ; côté serveur, l’identifiant de projet suffit ; sans compte de service, un compte Google désactivé peut encore se connecter jusqu’à l’expiration de son jeton (1 h) | Configurer Firebase pour chaque environnement ; ajouter le compte de service en production ; connexion SMS à cadrer |
 | L14 | Illustrations des catégories en 320 × 320 px (découpées dans la planche fournie) | Légèrement floues sur écran haute densité en grand format | Fournir chaque illustration séparément, en 640 px ou en SVG |
 | L15 | Photos des écrans de présentation et de l’encart « Espace vendeur » provisoires (marché, atelier) | Ne correspondent pas exactement à la maquette | Photos officielles de Béthanie (voir `public/images/CREDITS.md`) |

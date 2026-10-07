@@ -17,6 +17,12 @@ server/data/
 dist-ssr
 *.local
 
+# Variables d'environnement (clés GeniusPay, Turso, Claude, Firebase…) : jamais dans Git, quel que soit le nom du
+# fichier. Seul le modèle sans valeur est suivi.
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

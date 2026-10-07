@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { z, ZodError, type ZodTypeAny } from 'zod';
+import { describeError, redact } from './logs.ts';
 
 /** Erreur métier renvoyée telle quelle au client (message en français). */
 export class HttpError extends Error {
@@ -45,7 +46,7 @@ const looksLikeInternalLeak = (message: string) =>
 export const errorHandler = (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof HttpError) {
     if (looksLikeInternalLeak(err.message)) {
-      console.error('[api] Message d’erreur suspect bloqué avant envoi au client :', err.message.slice(0, 500));
+      console.error('[api] Message d’erreur suspect bloqué avant envoi au client :', redact(err.message.slice(0, 500)));
       res.status(err.status).json({ error: 'Une erreur est survenue. Réessayez dans un instant.' });
       return;
     }
@@ -67,6 +68,7 @@ export const errorHandler = (err: unknown, _req: Request, res: Response, _next: 
     res.status(status).json({ error: messages[status] ?? 'Requête refusée.' });
     return;
   }
-  console.error('[api] erreur inattendue', err);
+  // Résumé masqué, jamais l'objet entier : certaines bibliothèques y joignent la requête et ses en-têtes.
+  console.error('[api] erreur inattendue :', describeError(err));
   res.status(500).json({ error: 'Erreur interne du serveur.' });
 };
