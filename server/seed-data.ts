@@ -31,7 +31,7 @@ export const INITIAL_CATEGORIES: Category[] = [
   { id: 'maison', name: 'Maison', icon: 'fa-couch', description: 'Meubles, décoration', bgColor: 'bg-orange-50', textColor: 'text-orange-600' },
   { id: 'beaute', name: 'Beauté', icon: 'fa-spa', description: 'Soins, cosmétiques', bgColor: 'bg-rose-50', textColor: 'text-rose-600' },
   { id: 'alimentation', name: 'Alimentation', icon: 'fa-apple-whole', description: 'Produits locaux', bgColor: 'bg-emerald-50', textColor: 'text-emerald-600' },
-  { id: 'artisanat', name: 'Artisanat', icon: 'fa-paint-brush', description: 'Objets d’art, créations', bgColor: 'bg-yellow-50', textColor: 'text-yellow-700' },
+  { id: 'enfants', name: 'Enfants & Bébé', icon: 'fa-baby-carriage', description: 'Vêtements, jouets, puériculture', bgColor: 'bg-yellow-50', textColor: 'text-yellow-700' },
   { id: 'agriculture', name: 'Agriculture', icon: 'fa-seedling', description: 'Produits agricoles', bgColor: 'bg-green-50', textColor: 'text-green-700' },
   { id: 'services', name: 'Services', icon: 'fa-handshake', description: 'Formation, réparation', bgColor: 'bg-indigo-50', textColor: 'text-indigo-600' },
 ];

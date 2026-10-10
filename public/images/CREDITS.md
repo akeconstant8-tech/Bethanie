@@ -19,7 +19,8 @@ Images libres utilisées en attendant les photos officielles de Béthanie.
 
 | Fichier | Source | Licence |
 |---|---|---|
-| categories/mode.webp, electronique.webp, maison.webp, alimentation.webp, beaute.webp, artisanat.webp, agriculture.webp, services.webp | Découpées dans la planche fournie par le porteur de projet (`docs/maquette/illustrations-categories.jpg`), 320 × 320 px | **À valider** (cahier des charges, décision D9) |
+| categories/electronique.webp, maison.webp, alimentation.webp, beaute.webp, agriculture.webp, services.webp | Découpées dans la planche fournie par le porteur de projet (`docs/maquette/illustrations-categories.jpg`), 320 × 320 px | **À valider** (cahier des charges, décision D9) |
+| categories/mode.webp, categories/enfants.webp | Compositions dans le style de la planche, 320 × 320 px : sac, ballerines et enfants détourés des photos fournies par le porteur de projet le 10 octobre 2026 (`docs/maquette/photo-mode-originale.jpg`, `docs/maquette/photo-enfants-bebe-originale.jpg`) ; plante, chapeau et pile de vêtements repris de l’ancienne illustration Mode de la planche ; disque de couleur et socle doré redessinés | Fournies par le porteur de projet ; **à valider** (décision D9) |
 
 ## Bannière de l’accueil
 

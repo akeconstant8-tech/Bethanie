@@ -312,6 +312,13 @@ await addColumn('orders', 'cancel_reason', 'TEXT');
 // Nom du client au moment de la commande (achat invité ou compte) : indépendant du profil, qui peut changer.
 await addColumn('orders', 'customer_name', 'TEXT');
 
+// Catégorie « Artisanat » remplacée par « Enfants & Bébé » (10 octobre 2026) : les objets d'art et créations déjà en
+// vente, et leurs boutiques, passent dans « Maison » (décoration), la catégorie la plus proche.
+await engine.script(`
+  UPDATE products SET category = 'maison' WHERE category = 'artisanat';
+  UPDATE shops SET category = 'maison' WHERE category = 'artisanat';
+`);
+
 // Notifications GeniusPay déjà traitées : une notification rejouée (même identifiant) est ignorée.
 await engine.script(`
   CREATE TABLE IF NOT EXISTS payment_webhook_events (
