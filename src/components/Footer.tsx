@@ -2,6 +2,7 @@ import React from 'react';
 import { NavigateParams, ScreenType } from '../types';
 import { useI18n } from '../i18n';
 import { BethanieLogo } from './BethanieLogo';
+import { useReveal } from './ui';
 
 interface FooterProps {
   onNavigate: (screen: ScreenType, params?: NavigateParams) => void;
@@ -10,19 +11,23 @@ interface FooterProps {
 /** Pied de page des écrans larges (sur mobile, la barre d'onglets le remplace). */
 export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
   const { t } = useI18n();
-  const linkClass = 'hover:text-gold-400 transition-colors text-left cursor-pointer';
+  // Colonnes qui apparaissent l'une après l'autre quand le pied de page entre dans l'écran.
+  const reveal = useReveal<HTMLDivElement>();
+  const column = (i: number) => ({ 'data-reveal': reveal['data-reveal'], style: { '--delay': `${i * 90}ms` } as React.CSSProperties });
+  // Liens : couleur dorée et léger glissement vers la droite au survol.
+  const linkClass = 'hover:text-gold-400 hover:translate-x-0.5 transition-[color,translate] duration-200 text-left cursor-pointer';
   return (
     <footer className="hidden lg:block bg-brand-dark text-white/70 text-sm" id="a-propos">
       <div className="h-3 bg-pattern-kente opacity-60" aria-hidden="true"></div>
       <div className="max-w-7xl mx-auto px-8 pt-14 pb-8">
-        <div className="grid grid-cols-5 gap-10 mb-12">
-          <div className="col-span-2 space-y-4">
+        <div ref={reveal.ref} className="grid grid-cols-5 gap-10 mb-12">
+          <div className="col-span-2 space-y-4" {...column(0)}>
             <BethanieLogo variant="white" size="md" />
             <p className="text-sm leading-relaxed max-w-sm">{t('common.tagline')}</p>
             <div className="flex gap-2 pt-1">
               <a
                 href="mailto:contact@bethanie.ci"
-                className="w-9 h-9 rounded-full bg-white/10 hover:bg-gold-500 hover:text-brand-dark text-white flex items-center justify-center transition-colors"
+                className="w-9 h-9 rounded-full bg-white/10 hover:bg-gold-500 hover:text-brand-dark hover:-translate-y-0.5 text-white flex items-center justify-center transition-[color,background-color,translate] duration-200"
                 aria-label={t('footer.email')}
               >
                 <i className="fa-solid fa-envelope text-sm"></i>
@@ -30,7 +35,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             </div>
           </div>
 
-          <div>
+          <div {...column(1)}>
             <h4 className="text-white text-xs font-semibold uppercase tracking-wider mb-4">{t('footer.shop')}</h4>
             <ul className="space-y-2.5">
               <li>
@@ -56,7 +61,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             </ul>
           </div>
 
-          <div>
+          <div {...column(2)}>
             <h4 className="text-white text-xs font-semibold uppercase tracking-wider mb-4">{t('footer.sell')}</h4>
             <ul className="space-y-2.5">
               <li>
@@ -74,7 +79,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             </ul>
           </div>
 
-          <div>
+          <div {...column(3)}>
             <h4 className="text-white text-xs font-semibold uppercase tracking-wider mb-4">{t('footer.contact')}</h4>
             <ul className="space-y-3">
               <li className="flex gap-2.5">

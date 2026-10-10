@@ -218,7 +218,7 @@ export const AccountScreen: React.FC<AccountScreenProps> = ({
         return favorites.length === 0 ? (
           <EmptyState icon="fa-regular fa-heart" title={t('account.noFavorites')} text={t('account.noFavoritesText')} />
         ) : (
-          <div className="stagger grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 lg:gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 lg:gap-4">
             {favorites.map((p) => (
               <ProductCard
                 key={p.id}

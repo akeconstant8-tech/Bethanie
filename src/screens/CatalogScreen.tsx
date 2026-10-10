@@ -195,8 +195,8 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
             }}
             className="mt-2 flex gap-2"
           >
-            <div className="flex-1 flex items-center gap-2.5 h-11 px-3.5 rounded-xl bg-surface-light border border-slate-200 focus-within:border-brand-900">
-              <i className="fa-solid fa-magnifying-glass text-slate-400"></i>
+            <div className="group flex-1 flex items-center gap-2.5 h-11 px-3.5 rounded-xl bg-surface-light border border-slate-200 ring-brand-900/10 transition-[border-color,box-shadow,background-color] duration-200 focus-within:border-brand-900 focus-within:bg-white focus-within:ring-4">
+              <i className="fa-solid fa-magnifying-glass text-slate-400 transition-colors duration-200 group-focus-within:text-brand-900"></i>
               <input
                 type="search"
                 value={mobileSearch}
@@ -214,7 +214,10 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
             >
               <i className="fa-solid fa-sliders"></i>
               {activeFilters > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-gold-500 text-brand-dark text-[10px] font-bold flex items-center justify-center">
+                <span
+                  key={activeFilters}
+                  className="animate-bump absolute -top-1 -right-1 w-5 h-5 rounded-full bg-gold-500 text-brand-dark text-[10px] font-bold flex items-center justify-center"
+                >
                   {activeFilters}
                 </span>
               )}
@@ -259,9 +262,15 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
 
             <div className="flex items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500 min-w-0">
-                <strong className="text-slate-900 tabular-nums">{count}</strong>
+                {/* Le nombre de résultats « se pose » à chaque changement de filtre ou de recherche. */}
+                <strong key={filteredProducts.length} className="animate-scale-in inline-block text-slate-900 tabular-nums">
+                  {count}
+                </strong>
                 {searchQuery && (
-                  <span className="inline-flex items-center gap-1 bg-brand-50 text-brand-900 text-xs font-semibold pl-3 pr-1 h-7 rounded-full">
+                  <span
+                    key={searchQuery}
+                    className="animate-scale-in inline-flex items-center gap-1 bg-brand-50 text-brand-900 text-xs font-semibold pl-3 pr-1 h-7 rounded-full"
+                  >
                     « {searchQuery} »
                     {onSearchChange && (
                       <button
@@ -318,7 +327,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
                 }
               />
             ) : (
-              <div className="stagger grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 lg:gap-5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 lg:gap-5">
                 {filteredProducts.map((product) => (
                   <ProductCard
                     key={product.id}

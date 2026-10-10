@@ -546,7 +546,7 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
               actionLabel={t('product.seeMore')}
               onAction={() => onNavigate('catalog', { category: product.category })}
             />
-            <div className="stagger grid grid-cols-2 md:grid-cols-4 gap-3 lg:gap-5">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 lg:gap-5">
               {similar.map((p) => (
                 <ProductCard
                   key={p.id}

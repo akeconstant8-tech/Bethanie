@@ -3,7 +3,7 @@ import { Product } from '../types';
 import { useI18n } from '../i18n';
 import { formatPrice } from '../utils/commerce';
 import { HeartBurst } from './ui';
-import { flyToCart, isOnScreen, markSharedPhoto, tiltHandlers } from '../utils/motion';
+import { flyToCart, isOnScreen, markSharedPhoto, tiltHandlers, useEntrance } from '../utils/motion';
 
 interface ProductCardProps {
   product: Product;
@@ -28,7 +28,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFavorite, o
   const [heartPops, setHeartPops] = useState(0);
   const timer = useRef<number>(undefined);
   const photo = useRef<HTMLImageElement>(null);
+  const card = useRef<HTMLElement>(null);
   const outOfStock = product.stock <= 0;
+  // La carte monte quand elle entre dans l'écran (en cascade avec ses voisines).
+  useEntrance(card);
 
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -50,6 +53,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFavorite, o
 
   return (
     <article
+      ref={card}
       onClick={open}
       {...tiltHandlers}
       className="tilt group relative bg-white rounded-2xl border border-slate-200/70 shadow-soft overflow-hidden hover:shadow-lift hover:-translate-y-1 active:scale-[0.99] transition-[translate,scale,box-shadow,transform] duration-300 ease-out flex flex-col cursor-pointer"
@@ -69,7 +73,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFavorite, o
         />
         {product.discountBadge && (
           <span
-            className={`absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wide ${badgeColor(
+            className={`card-badge absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wide ${badgeColor(
               product.discountBadge
             )}`}
           >
@@ -120,12 +124,20 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFavorite, o
           <button
             onClick={handleAdd}
             disabled={outOfStock}
-            className={`shrink-0 w-10 h-10 rounded-xl text-white flex items-center justify-center cursor-pointer disabled:bg-slate-200 ${
-              added ? 'bg-emerald-600' : 'bg-brand-900 hover:bg-brand-dark hover:shadow-[0_8px_18px_-8px_rgba(15,81,50,0.7)]'
+            className={`group/add shrink-0 w-10 h-10 rounded-xl text-white flex items-center justify-center cursor-pointer disabled:bg-slate-200 transition-[background-color,box-shadow,scale,transform] duration-200 ease-out ${
+              added
+                ? 'bg-emerald-600'
+                : 'bg-brand-900 hover:bg-brand-dark hover:scale-[1.06] hover:shadow-[0_8px_18px_-8px_rgba(15,81,50,0.7)] disabled:hover:scale-100'
             }`}
             aria-label={t('product.addToCartNamed', { title: product.title })}
           >
-            <i key={added ? 'ok' : 'add'} className={`fa-solid ${added ? 'fa-check animate-pop' : 'fa-plus'} text-sm`}></i>
+            {/* Le « + » pivote au survol ; la coche apparaît d'un bond une fois le produit ajouté. */}
+            <i
+              key={added ? 'ok' : 'add'}
+              className={`fa-solid ${
+                added ? 'fa-check animate-pop' : 'fa-plus transition-transform duration-300 ease-spring group-hover/add:rotate-90'
+              } text-sm`}
+            ></i>
           </button>
         </div>
       </div>

@@ -6,6 +6,7 @@
  *  - pages (navigation)          : réseau d'abord, sinon la page d'accueil en cache (l'application est une page unique) ;
  *  - JS, CSS, polices, icônes    : cache d'abord (fichiers versionnés, mis en cache à l'installation) ;
  *  - photos (/images, /uploads)  : cache d'abord, ajoutées au cache à la première consultation ;
+ *  - vidéos (/videos)            : réseau uniquement (lecture par morceaux, fichiers lourds) ;
  *  - API publique du catalogue   : réseau d'abord (4 s maximum), sinon la dernière réponse connue ;
  *  - reste de l'API              : réseau uniquement (comptes, commandes, paiements : jamais en cache).
  */
@@ -55,7 +56,8 @@ const cacheFirst = async (request) => {
   const cached = await caches.match(request);
   if (cached) return cached;
   const response = await fetch(request);
-  if (response.ok) {
+  // Seulement les réponses complètes (200) : une réponse partielle (206) ne peut pas être mise en cache.
+  if (response.status === 200) {
     const cache = await caches.open(RUNTIME);
     await cache.put(request, response.clone());
     trimCache(RUNTIME, RUNTIME_MAX_ENTRIES);
@@ -115,5 +117,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (url.pathname === '/sw.js') return;
+  // Vidéos : lues morceau par morceau (requêtes « Range ») et trop lourdes pour le cache : toujours le réseau.
+  if (url.pathname.startsWith('/videos/') || request.headers.has('range')) return;
   event.respondWith(cacheFirst(request));
 });

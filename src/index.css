@@ -902,6 +902,53 @@
   .screen-fade {
     animation: fade-in 0.3s ease-out backwards;
   }
+
+  /* Cartes produit : chacune monte à son tour quand elle entre dans l'écran (observeEntrance, utils/motion.ts).
+     « wait » : pas encore vue ; « in » : en cascade (--enter-i) avec les cartes apparues en même temps. « backwards » :
+     une fois arrivée, la carte retrouve ses effets (inclinaison, survol). */
+  [data-enter='wait'] {
+    opacity: 0;
+  }
+  [data-enter='in'] {
+    animation: rise-in 0.5s var(--ease-out-soft) backwards;
+    animation-delay: calc(var(--enter-i, 0) * 55ms);
+  }
+  /* Badge « Promotion », « Nouveau »… : glisse et se pose juste après la carte. */
+  @keyframes badge-in {
+    from {
+      opacity: 0;
+      transform: translateX(-10px) scale(0.8);
+    }
+  }
+  [data-enter='in'] .card-badge {
+    animation: badge-in 0.45s var(--ease-spring) backwards;
+    animation-delay: calc(var(--enter-i, 0) * 55ms + 260ms);
+  }
+
+  /* Liens de la barre de navigation : un trait se déploie depuis le centre au survol (sauf la page en cours). */
+  .nav-link {
+    position: relative;
+  }
+  .nav-link::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -2px;
+    height: 2px;
+    border-radius: 9999px;
+    background: currentColor;
+    transform: scaleX(0);
+    transition: transform 0.25s var(--ease-out-soft);
+    pointer-events: none;
+  }
+  .nav-link:hover::after,
+  .nav-link:focus-visible::after {
+    transform: scaleX(1);
+  }
+  .nav-link[aria-current='page']::after {
+    display: none;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -998,6 +1045,11 @@
     opacity: 1;
     transform: none;
   }
+  :root:not([data-motion='on']) [data-enter],
+  :root:not([data-motion='on']) [data-enter] .card-badge {
+    opacity: 1;
+    animation: none !important;
+  }
   :root:not([data-motion='on']) .hero-photo {
     animation: none !important;
   }
@@ -1024,6 +1076,11 @@
 :root[data-motion='off'] [data-reveal] {
   opacity: 1;
   transform: none;
+}
+:root[data-motion='off'] [data-enter],
+:root[data-motion='off'] [data-enter] .card-badge {
+  opacity: 1;
+  animation: none !important;
 }
 :root[data-motion='off'] .hero-photo {
   animation: none !important;

@@ -70,7 +70,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({ products, on
                     )}
                   </span>
                   <span className="p-3 lg:p-4 flex-1 flex flex-col">
-                    <span className="block font-display text-sm lg:text-base font-semibold text-slate-900">{categoryName(cat.id)}</span>
+                    <span className="block font-display text-sm lg:text-base font-semibold text-slate-900 transition-colors duration-200 group-hover:text-brand-900">{categoryName(cat.id)}</span>
                     <span className="block text-xs text-slate-500 mt-0.5">{categoryDescription(cat.id)}</span>
                     <span className="mt-auto pt-2 flex items-center justify-between text-xs">
                       <span className="text-slate-400">

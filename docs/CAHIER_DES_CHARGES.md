@@ -289,6 +289,12 @@ toutes désactivées quand le téléphone ou l’ordinateur demande de réduire 
 | MOT-20 | Champ de recherche qui propose des exemples en les « tapant » | P3 | ✅ |
 | MOT-21 | Suivi de commande : camion qui roule jusqu’à l’étape en cours, étape en cours qui « émet » | P2 | ✅ |
 | MOT-22 | Bouton « Ajouter au panier » de la fiche qui devient « Ajouté ! » ; panneaux toujours au-dessus de la barre d’onglets | P2 | ✅ |
+| MOT-23 | Cartes produit qui apparaissent au défilement, en cascade ; badges animés ; bouton « + » animé au survol | P2 | ✅ |
+| MOT-24 | En-tête d’ordinateur : logo qui se dessine et éléments qui apparaissent au chargement, trait sous les liens au survol, icônes animées au survol, recherche qui s’éclaire au focus | P3 | ✅ |
+| MOT-25 | Catégories de l’accueil : ombre douce sous l’illustration et nom mis en valeur au survol, mêmes dimensions pour toutes | P3 | ✅ |
+| MOT-26 | Catalogue : nombre de résultats et recherche active qui se posent à chaque changement | P3 | ✅ |
+| MOT-27 | Pied de page : colonnes qui apparaissent au défilement, liens animés au survol | P3 | ✅ |
+| MOT-28 | Vidéo de présentation en motion design sur l’accueil (lecture en grand au toucher, téléchargée seulement à la demande) ; version verticale pour WhatsApp et les réseaux sociaux | P2 | ✅ |
 
 > **Réduire les animations** : sous Windows, ce réglage est activé quand **Paramètres › Accessibilité › Effets
 > visuels › Effets d’animation** est désactivé. Le navigateur le transmet au site, qui coupe alors toutes les

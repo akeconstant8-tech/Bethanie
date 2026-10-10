@@ -8,6 +8,8 @@ interface BethanieLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   /** stacked : pictogramme au-dessus du nom (écran d'accueil, connexion). */
   layout?: 'row' | 'stacked';
+  /** Le chariot se dessine et ses roues apparaissent (en-tête, au chargement). */
+  animated?: boolean;
 }
 
 /** Contour simplifié du continent africain (repère 100 × 100). */
@@ -50,10 +52,11 @@ export const BethanieLogo: React.FC<BethanieLogoProps> = ({
   variant = 'full',
   size = 'md',
   layout = 'row',
+  animated = false,
 }) => {
   const { t } = useI18n();
   const onDark = variant === 'white';
-  const mark = <BethanieMark className={`${ICON_SIZES[size]} shrink-0 drop-shadow-sm`} />;
+  const mark = <BethanieMark className={`${ICON_SIZES[size]} shrink-0 drop-shadow-sm`} animated={animated} />;
 
   if (variant === 'icon') return <span className={`inline-flex ${className}`}>{mark}</span>;
 

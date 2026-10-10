@@ -3,6 +3,7 @@ import { NavigateParams, Product, ScreenType } from '../types';
 import { INITIAL_CATEGORIES, artisanWoodworkerImg, homeBannerImg } from '../data/mockData';
 import { BethanieLogo } from '../components/BethanieLogo';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
+import { PresentationVideo } from '../components/PresentationVideo';
 import { ProductCard } from '../components/ProductCard';
 import { HeaderIconButton, MobileHeader, SectionHeader, btnGold, useReveal } from '../components/ui';
 import { TranslationKey, useI18n } from '../i18n';
@@ -117,9 +118,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             e.preventDefault();
             onSearch(query.trim());
           }}
-          className="mt-3 flex items-center bg-white rounded-xl h-11 px-3.5 gap-2.5"
+          className="group mt-3 flex items-center bg-white rounded-xl h-11 px-3.5 gap-2.5 ring-gold-400 transition-shadow duration-200 focus-within:ring-2"
         >
-          <i className="fa-solid fa-magnifying-glass text-slate-400"></i>
+          <i className="fa-solid fa-magnifying-glass text-slate-400 transition-colors duration-200 group-focus-within:text-brand-900"></i>
           <input
             ref={searchField}
             type="search"
@@ -178,6 +179,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
         {installBanner}
 
+        {/* Vidéo de présentation (motion design) : aperçu, lecture en grand au toucher */}
+        <PresentationVideo />
+
         {/* Catégories */}
         <section aria-labelledby="home-categories" {...categoriesReveal}>
           <SectionHeader title={<span id="home-categories">{t('nav.categories')}</span>} onAction={() => onNavigate('categories')} />
@@ -188,17 +192,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   onClick={() => onNavigate('catalog', { category: cat.id })}
                   className="group w-full flex flex-col items-center gap-1.5 cursor-pointer"
                 >
-                  <img
-                    src={cat.image}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    width={320}
-                    height={320}
-                    className="w-full max-w-28 aspect-square object-contain mix-blend-multiply transition-transform duration-300 ease-out group-hover:scale-110 group-hover:-translate-y-1"
-                  />
-                  <span className="text-[11px] lg:text-sm font-semibold text-slate-800 group-hover:text-brand-900 text-center leading-tight">
+                  <span className="relative w-full max-w-28">
+                    {/* Au survol, l'illustration se soulève et une ombre douce apparaît sous son socle. */}
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-[16%] right-[16%] bottom-[1%] h-[10%] rounded-full bg-slate-900/25 blur-md opacity-0 scale-x-75 transition-[opacity,scale] duration-300 ease-out group-hover:opacity-100 group-hover:scale-x-100 group-focus-visible:opacity-100 group-focus-visible:scale-x-100"
+                    ></span>
+                    <img
+                      src={cat.image}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      width={320}
+                      height={320}
+                      className="relative w-full aspect-square object-contain mix-blend-multiply transition-transform duration-300 ease-out group-hover:scale-110 group-hover:-translate-y-1 group-focus-visible:scale-110 group-focus-visible:-translate-y-1"
+                    />
+                  </span>
+                  <span className="relative text-[11px] lg:text-sm font-semibold text-slate-800 transition-colors duration-200 group-hover:text-brand-900 text-center leading-tight">
                     {categoryName(cat.id)}
+                    {/* Trait doré qui se déploie sous le nom. */}
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-1/2 -bottom-1.5 h-0.5 w-6 -ml-3 rounded-full bg-gold-500 scale-x-0 transition-transform duration-300 ease-out group-hover:scale-x-100 group-focus-visible:scale-x-100"
+                    ></span>
                   </span>
                 </button>
               </li>
@@ -212,7 +228,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             title={<span id="home-popular">{t('home.popular')}</span>}
             onAction={() => onNavigate('catalog', { category: 'all' })}
           />
-          <div className="stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-5">
             {popular.map((product) => (
               <ProductCard
                 key={product.id}

@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
 import { prefersReducedMotion } from '../pwa/pwa';
 
 /* ------------------------------------------------------------------ */
@@ -130,6 +130,46 @@ export const flyToCart = (image: string, from: Element | null) => {
   };
   shrink.onfinish = land;
   fallback = window.setTimeout(land, duration + 300);
+};
+
+/* ------------------------------------------------------------------ */
+/* Cartes qui apparaissent au défilement                               */
+/* ------------------------------------------------------------------ */
+
+let entranceObserver: IntersectionObserver | null = null;
+
+/** Un seul observateur pour toutes les cartes : celles qui entrent ensemble montent en cascade (index.css). */
+const entrance = () =>
+  (entranceObserver ??= new IntersectionObserver(
+    (entries) => {
+      // Ordre de lecture : rangée par rangée (à 12 px près), puis de gauche à droite.
+      const row = (entry: IntersectionObserverEntry) => Math.round(entry.boundingClientRect.top / 12);
+      entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => row(a) - row(b) || a.boundingClientRect.left - b.boundingClientRect.left)
+        .forEach((entry, i) => {
+          const element = entry.target as HTMLElement;
+          element.style.setProperty('--enter-i', String(Math.min(i, 8)));
+          element.dataset.enter = 'in';
+          entranceObserver?.unobserve(element);
+        });
+    },
+    { rootMargin: '0px 0px -4% 0px', threshold: 0.08 }
+  ));
+
+/**
+ * Fait monter un élément (carte produit) quand il entre dans l'écran, en cascade avec ceux qui entrent en même
+ * temps. Avant l'affichage (useLayoutEffect) pour éviter un clignotement ; sans effet si les animations sont réduites.
+ */
+export const useEntrance = (ref: React.RefObject<HTMLElement | null>) => {
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || element.dataset.enter === 'in' || prefersReducedMotion() || !('IntersectionObserver' in window)) return;
+    element.dataset.enter = 'wait';
+    const observer = entrance();
+    observer.observe(element);
+    return () => observer.unobserve(element);
+  }, [ref]);
 };
 
 /* ------------------------------------------------------------------ */

@@ -60,9 +60,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className="hidden lg:block sticky top-0 z-50 shadow-sm [view-transition-name:site-header]">
       <div className="bg-brand-900 text-white">
-        <div className="max-w-7xl mx-auto px-6 lg:px-8 h-18 flex items-center gap-4 xl:gap-6">
+        {/* Au chargement : le logo se dessine, puis les éléments de la barre apparaissent l'un après l'autre. */}
+        <div className="stagger max-w-7xl mx-auto px-6 lg:px-8 h-18 flex items-center gap-4 xl:gap-6">
           <button onClick={() => onNavigate('home')} className="shrink-0 cursor-pointer" aria-label={t('nav.homeLabel')}>
-            <BethanieLogo variant="white" size="md" />
+            <BethanieLogo variant="white" size="md" animated />
           </button>
 
           <label className="flex items-center gap-2 text-sm text-white/90 shrink min-w-0 max-w-40 xl:max-w-none cursor-pointer hover:text-white">
@@ -82,8 +83,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           </label>
 
           <form onSubmit={handleSearchSubmit} className="flex-1 min-w-0" role="search">
-            <div className="flex items-center bg-white rounded-full pl-4 pr-1 h-11 shadow-sm focus-within:ring-2 focus-within:ring-gold-400">
-              <i className="fa-solid fa-magnifying-glass text-slate-400"></i>
+            <div className="group flex items-center bg-white rounded-full pl-4 pr-1 h-11 shadow-sm ring-gold-400 transition-shadow duration-200 focus-within:ring-2 focus-within:shadow-glow">
+              <i className="fa-solid fa-magnifying-glass text-slate-400 transition-colors duration-200 group-focus-within:text-brand-900"></i>
               <input
                 ref={searchField}
                 type="search"
@@ -121,11 +122,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             </span>
             <button
               onClick={() => onNavigate('account', { tab: 'wishlist' })}
-              className="relative w-11 h-11 rounded-full hover:bg-white/10 cursor-pointer"
+              className="group relative w-11 h-11 rounded-full hover:bg-white/10 cursor-pointer"
               aria-label={t('common.myFavorites')}
               title={t('common.myFavorites')}
             >
-              <i className="fa-regular fa-heart text-xl"></i>
+              <i className="fa-regular fa-heart text-xl transition-transform duration-300 ease-spring group-hover:scale-115"></i>
               {wishlistCount > 0 && (
                 <span
                   key={wishlistCount}
@@ -138,11 +139,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               onClick={() => onNavigate('cart')}
               data-cart-target=""
-              className={`relative w-11 h-11 rounded-full cursor-pointer ${currentScreen === 'cart' ? 'bg-white/15' : 'hover:bg-white/10'}`}
+              className={`group relative w-11 h-11 rounded-full cursor-pointer ${currentScreen === 'cart' ? 'bg-white/15' : 'hover:bg-white/10'}`}
               aria-label={t('common.myCart')}
               title={t('common.myCart')}
             >
-              <i className="fa-solid fa-cart-shopping text-xl"></i>
+              {/* Le chariot se cabre légèrement au survol. */}
+              <i className="fa-solid fa-cart-shopping text-xl transition-transform duration-300 ease-spring group-hover:-rotate-12 group-hover:scale-110"></i>
               {cartCount > 0 && (
                 <span
                   key={cartCount}
@@ -154,11 +156,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
             <button
               onClick={() => onNavigate('account')}
-              className={`ml-1 xl:ml-2 inline-flex items-center gap-2 h-11 px-3 xl:px-4 rounded-full text-sm font-semibold cursor-pointer transition-colors ${
+              className={`group ml-1 xl:ml-2 inline-flex items-center gap-2 h-11 px-3 xl:px-4 rounded-full text-sm font-semibold cursor-pointer transition-colors ${
                 currentScreen === 'account' ? 'bg-white text-brand-900' : 'bg-white/10 hover:bg-white/20'
               }`}
             >
-              <i className="fa-regular fa-user"></i>
+              <i className="fa-regular fa-user transition-transform duration-300 ease-spring group-hover:-translate-y-0.5 group-hover:scale-110"></i>
               <span className="max-w-24 xl:max-w-32 truncate">{userName ? userName.split(' ')[0] : t('common.signIn')}</span>
             </button>
           </div>
@@ -166,13 +168,14 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       <nav className="bg-white border-b border-slate-200/80" aria-label={t('nav.sections')}>
-        <div className="max-w-7xl mx-auto px-6 lg:px-8 h-11 flex items-center gap-7 text-sm">
+        {/* Liens : un trait se déploie au survol (classe nav-link, index.css). */}
+        <div className="stagger max-w-7xl mx-auto px-6 lg:px-8 h-11 flex items-center gap-7 text-sm">
           {links.map((link) => (
             <button
               key={link.label}
               onClick={link.onClick}
               aria-current={link.active ? 'page' : undefined}
-              className={`h-full border-b-2 font-medium cursor-pointer transition-colors ${
+              className={`nav-link h-full border-b-2 font-medium cursor-pointer transition-colors ${
                 link.active ? 'border-brand-900 text-brand-900' : 'border-transparent text-slate-600 hover:text-brand-900'
               }`}
             >
@@ -181,11 +184,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           ))}
           <button
             onClick={() => onNavigate('seller')}
-            className={`h-full border-b-2 font-semibold cursor-pointer inline-flex items-center gap-1.5 ${
+            aria-current={currentScreen === 'seller' ? 'page' : undefined}
+            className={`nav-link group h-full border-b-2 font-semibold cursor-pointer inline-flex items-center gap-1.5 transition-colors ${
               currentScreen === 'seller' ? 'border-gold-600 text-gold-700' : 'border-transparent text-gold-700 hover:text-gold-600'
             }`}
           >
-            <i className="fa-solid fa-store text-xs"></i>
+            <i className="fa-solid fa-store text-xs transition-transform duration-300 ease-spring group-hover:-translate-y-0.5"></i>
             {t('nav.sell')}
           </button>
           <span className="ml-auto text-xs text-slate-500">
