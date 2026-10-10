@@ -1,8 +1,9 @@
 # Vidéo de présentation de Béthanie (motion design, musique, voix off)
 
 Vidéo verticale **1080 × 1920**, 32 secondes, avec bande-son : format des statuts WhatsApp, TikTok, Reels Instagram et
-Facebook. Fichier : `bethanie-pub-9x16.mp4` (gardé en local, non enregistré dans Git). La version légère du site
-(720 × 1280) est `public/videos/bethanie-presentation.mp4`.
+Facebook. Fichier : `bethanie-pub-9x16.mp4` (gardé en local, non enregistré dans Git). Sur le site :
+`public/videos/bethanie-presentation-hd.mp4` (HD 1080 × 1920, lecteur plein écran, chargé à l’ouverture) et
+`public/videos/bethanie-presentation.mp4` (aperçu léger 540 × 960 de l’accueil, en boucle sans le son).
 
 ## Déroulé (calé sur la musique, 128 battements par minute)
 

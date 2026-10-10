@@ -4,12 +4,14 @@ import {
   AccountTab,
   ApiConfig,
   CartItem,
+  CatalogView,
   CheckoutPayload,
   Me,
   NavigateParams,
   Order,
   Product,
   ProductDraft,
+  ProductPatch,
   ScreenType,
   SellerTab,
   ShopDraft,
@@ -72,6 +74,7 @@ const SCREEN_PATHS: Record<ScreenType, string> = {
 };
 
 const ACCOUNT_TABS: AccountTab[] = ['orders', 'wishlist', 'addresses', 'payments', 'profile'];
+const CATALOG_VIEWS: CatalogView[] = ['populaires', 'nouveautes', 'meilleures-ventes', 'promotions', 'proches', 'locaux'];
 const SELLER_TABS: SellerTab[] = ['products', 'orders', 'stats', 'new'];
 
 /**
@@ -105,6 +108,8 @@ const buildHash = ({ screen, params }: Route) => {
     const query = new URLSearchParams();
     if (params.category && params.category !== 'all') query.set('categorie', params.category);
     if (params.vendor) query.set('boutique', params.vendor);
+    if (params.view) query.set('vue', params.view);
+    if (params.city) query.set('ville', params.city);
     const qs = query.toString();
     return qs ? `${base}?${qs}` : base;
   }
@@ -129,6 +134,10 @@ const parseHash = (hash: string): Route | null => {
     params.category = q.get('categorie') ?? 'all';
     const vendor = q.get('boutique');
     if (vendor) params.vendor = vendor;
+    const view = q.get('vue');
+    if (CATALOG_VIEWS.includes(view as CatalogView)) params.view = view as CatalogView;
+    const city = q.get('ville');
+    if (city) params.city = city;
   }
   return { screen, params };
 };
@@ -189,7 +198,7 @@ const App: React.FC = () => {
   const cart = useMemo(
     () =>
       rawCart
-        .filter((item) => productsById.has(item.product.id))
+        .filter((item) => productsById.has(item.product.id) && !productsById.get(item.product.id)!.isDemo)
         .map((item) => ({ ...item, product: productsById.get(item.product.id)! })),
     [rawCart, productsById]
   );
@@ -379,7 +388,7 @@ const App: React.FC = () => {
       }
       if (screen === 'catalog') {
         next.category ??= 'all';
-        if (params.category || params.vendor) setSearchQuery('');
+        if (params.category || params.vendor || params.view || params.city) setSearchQuery('');
       }
       const hash = buildHash({ screen, params: next });
       if (window.location.hash === hash) {
@@ -489,6 +498,10 @@ const App: React.FC = () => {
   /* ----- Panier (dans le navigateur) ----- */
   const addToCart = useCallback(
     (product: Product, quantity = 1, color?: string, size?: string, silent = false) => {
+      if (product.isDemo) {
+        notify(t('toast.demoUnavailable'), { tone: 'info' });
+        return false;
+      }
       const sizes = product.availableSizes ?? [];
       if (!size && sizes.length > 1) {
         // Impossible de deviner la taille : on envoie le client sur la fiche produit.
@@ -522,8 +535,9 @@ const App: React.FC = () => {
   const quickAdd = useCallback((product: Product) => addToCart(product), [addToCart]);
 
   const buyNow = (product: Product, quantity: number, color?: string, size?: string) => {
-    addToCart(product, quantity, color, size, true);
+    if (!addToCart(product, quantity, color, size, true)) return false;
     navigate('checkout');
+    return true;
   };
 
   const updateQuantity = (index: number, quantity: number) => {
@@ -629,6 +643,13 @@ const App: React.FC = () => {
     if (product) setProducts((list) => list.map((p) => (p.id === id ? product : p)));
   };
 
+  /** Modification complète depuis l'espace vendeur : une erreur remonte au formulaire, qui l'affiche. */
+  const editProduct = async (id: string, patch: ProductPatch) => {
+    const product = await api.updateProduct(id, patch);
+    setProducts((list) => list.map((p) => (p.id === id ? product : p)));
+    notify(t('toast.productUpdated'));
+  };
+
   const deleteProduct = async (id: string) => {
     const done = await attempt(() => api.deleteProduct(id).then(() => true));
     if (done) {
@@ -724,6 +745,8 @@ const App: React.FC = () => {
             onOpenProduct={openProduct}
             onAddToCart={quickAdd}
             onToggleWishlist={toggleWishlist}
+            city={selectedCity}
+            onCityChange={setSelectedCity}
           />
         );
 
@@ -733,10 +756,13 @@ const App: React.FC = () => {
       case 'catalog':
         return (
           <CatalogScreen
-            key={`${params.category}|${params.vendor ?? ''}`}
+            key={`${params.category}|${params.vendor ?? ''}|${params.view ?? ''}|${params.city ?? ''}`}
             products={products}
             initialCategory={params.category ?? 'all'}
             initialVendor={params.vendor}
+            initialView={params.view}
+            initialCity={params.city}
+            userCity={selectedCity}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             onNavigate={navigate}
@@ -781,6 +807,8 @@ const App: React.FC = () => {
             onToggleWishlist={toggleWishlist}
             onNotify={(text) => notify(text, { tone: 'info' })}
             onProductUpdated={(updated) => setProducts((list) => list.map((p) => (p.id === updated.id ? updated : p)))}
+            city={selectedCity}
+            onCityChange={setSelectedCity}
           />
         );
       }
@@ -872,6 +900,7 @@ const App: React.FC = () => {
             onCreateShop={createShop}
             onAddProduct={addProduct}
             onUpdateProduct={updateProduct}
+            onEditProduct={editProduct}
             onDeleteProduct={deleteProduct}
             onAdvanceOrder={advance}
             onNavigate={navigate}

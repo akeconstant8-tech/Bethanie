@@ -19,4 +19,6 @@ export const config = {
   cookieSecure: process.env.COOKIE_SECURE === 'true',
   sessionDays: 30,
   maxUploadBytes: 2.5 * 1024 * 1024,
+  /** Produits de démonstration visibles et commandables ; CATALOGUE_DEMO=off les masque (vrais vendeurs seulement). */
+  demoCatalogue: process.env.CATALOGUE_DEMO?.trim().toLowerCase() !== 'off',
 };

@@ -11,7 +11,7 @@
 
 | | Nombre |
 |---|---|
-| Corrigés | 23 (S1 à S22, C1) |
+| Corrigés | 24 (S1 à S23, C1) |
 | À traiter **avant d’encaisser de vrais paiements** | 2 (C2 base permanente, C3 reversements aux vendeurs) |
 | Moyens | 4 (dont 1 conservé par décision) |
 | Faibles | 5 |
@@ -143,6 +143,7 @@ rapport visaient des éléments déjà supprimés (paiement simulé, mode démo)
 | S19 | Moyenne | La référence du paiement GeniusPay était enregistrée sans condition : deux créations simultanées pour une même commande auraient pu laisser deux paiements ouverts, le second écrasant le premier | `startPaymentOnce` : clé unique `bethanie-<commande>` envoyée à GeniusPay dans les métadonnées ; un paiement existant est réutilisé sans rappeler GeniusPay ; enregistrement conditionnel (le premier paiement l’emporte, le doublon est signalé dans les journaux). Testé : un seul appel par commande, réutilisation, course simulée |
 | S20 | Faible | La réponse d’erreur reprenait `err.message`, que n’importe quel code peut modifier après coup (risque d’envoyer un détail interne au visiteur) | Message public figé à la création de l’erreur (`publicMessage`), seul envoyé ; le garde-fou contre les traces techniques reste en place. Testé : message modifié, requête SQL, trace d’appel, erreur inattendue → jamais envoyés |
 | S21 | Faible | Listes sans plafond imposé par le serveur (ex-F6) | `limit` / `offset` contrôlés : catalogue 100 par défaut et 500 au plus (le site charge le catalogue en une fois), avis 50, « Mes commandes » 100, commandes d’une boutique 500 ; toute valeur hors limites → 400. Testé |
+| S23 | Moyenne | Les anciennes commandes d’exemple, déjà marquées `is_demo`, pouvaient encore être consultées ou déclencher une vérification GeniusPay via `POST /orders/:id/payment/check` | Les commandes démo sont exclues de la liste client ; détail et vérification de paiement refusés ; aucune nouvelle commande ou aucun paiement démo n’est créé. Vérifié sur base isolée et par contrôle du code |
 | S22 | Info | Journaux de démarrage citant le nom des variables secrètes absentes (signalé « données sensibles dans les journaux ») | Formulés sans nom de variable (renvoi à `.env.example`) ; aucune valeur n’y figurait déjà (vérifié) |
 
 ### Alertes Herozion restantes (vérifiées, non modifiées)

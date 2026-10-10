@@ -1,12 +1,13 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { NavigateParams, Product, ScreenType } from '../types';
+import { CatalogView, NavigateParams, Product, ScreenType } from '../types';
 import { INITIAL_CATEGORIES, artisanWoodworkerImg, homeBannerImg } from '../data/mockData';
 import { BethanieLogo } from '../components/BethanieLogo';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { PresentationVideo } from '../components/PresentationVideo';
-import { ProductCard } from '../components/ProductCard';
+import { ProductCard, discountPercent } from '../components/ProductCard';
 import { HeaderIconButton, MobileHeader, SectionHeader, btnGold, useReveal } from '../components/ui';
 import { TranslationKey, useI18n } from '../i18n';
+import { CITIES, cityOf } from '../utils/commerce';
 import { useTypewriterPlaceholder } from '../utils/motion';
 
 interface HomeScreenProps {
@@ -20,7 +21,81 @@ interface HomeScreenProps {
   onToggleWishlist: (productId: string) => void;
   /** Bannière « Installez Béthanie », quand l'installation est possible. */
   installBanner?: React.ReactNode;
+  /** Ville du client : rangée « Près de chez vous » (même réglage qu'au paiement). */
+  city: string;
+  onCityChange: (city: string) => void;
 }
+
+/** Nombre de produits par rangée de l'accueil (tous visibles en faisant défiler sur téléphone). */
+const SHELF_SIZE = 10;
+
+interface ShelfProps {
+  id: string;
+  title: React.ReactNode;
+  hint?: string;
+  products: Product[];
+  /** Produits affichés sur ordinateur (une rangée de 5 ou deux). */
+  desktopCount?: 5 | 10;
+  onSeeAll: () => void;
+  wishlist: string[];
+  onOpenProduct: (product: Product) => void;
+  onAddToCart: (product: Product) => void;
+  onToggleWishlist: (productId: string) => void;
+  /** Texte affiché à la place des produits quand la rangée est vide. */
+  empty?: string;
+}
+
+/** Rangée de produits : défilement horizontal sur téléphone, grille sur ordinateur, « Voir tout » vers le catalogue. */
+const ProductShelf: React.FC<ShelfProps> = ({
+  id,
+  title,
+  hint,
+  products,
+  desktopCount = 5,
+  onSeeAll,
+  wishlist,
+  onOpenProduct,
+  onAddToCart,
+  onToggleWishlist,
+  empty,
+}) => {
+  const reveal = useReveal<HTMLElement>();
+  return (
+    <section aria-labelledby={id} {...reveal}>
+      <SectionHeader
+        title={
+          <span id={id} className="block">
+            {title}
+            {hint && <span className="block text-xs lg:text-sm font-normal text-slate-500 mt-0.5">{hint}</span>}
+          </span>
+        }
+        onAction={products.length > 0 ? onSeeAll : undefined}
+      />
+      {products.length === 0 && empty ? (
+        <p className="text-sm text-slate-500 bg-white rounded-2xl border border-slate-200/70 p-4">{empty}</p>
+      ) : (
+        <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory -mx-4 px-4 pb-1 lg:grid lg:grid-cols-5 lg:gap-5 lg:overflow-visible lg:mx-0 lg:px-0 lg:pb-0">
+          {products.map((product, i) => (
+            <div
+              key={product.id}
+              className={`w-[46%] sm:w-[31%] shrink-0 snap-start flex lg:w-auto ${i >= desktopCount ? 'lg:hidden' : ''}`}
+            >
+              <div className="w-full flex flex-col [&>article]:flex-1">
+                <ProductCard
+                  product={product}
+                  isFavorite={wishlist.includes(product.id)}
+                  onOpen={onOpenProduct}
+                  onAddToCart={onAddToCart}
+                  onToggleWishlist={onToggleWishlist}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+};
 
 const delay = (ms: number) => ({ '--delay': `${ms}ms` }) as React.CSSProperties;
 
@@ -76,6 +151,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onAddToCart,
   onToggleWishlist,
   installBanner,
+  city,
+  onCityChange,
 }) => {
   const { t, categoryName } = useI18n();
   const [query, setQuery] = useState('');
@@ -83,15 +160,36 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   useTypewriterPlaceholder(searchField, t('common.searchPlaceholder'), t('search.examples'), t('search.try'));
   // Sections qui apparaissent au défilement
   const categoriesReveal = useReveal<HTMLElement>();
-  const popularReveal = useReveal<HTMLElement>();
   const sellReveal = useReveal<HTMLElement>();
   const trustReveal = useReveal<HTMLElement>();
 
-  // « Populaires » : les produits les plus évalués d'abord.
-  const popular = useMemo(
-    () => [...products].sort((a, b) => b.reviewsCount - a.reviewsCount || b.rating - a.rating).slice(0, 10),
-    [products]
-  );
+  // Rangées construites sur des données réelles : ventes payées, favoris et avis (popularité), date de mise en vente,
+  // promotions fixées par les vendeurs, ville du produit, produits locaux. Sans donnée, la rangée n'apparaît pas.
+  const shelves = useMemo(() => {
+    const realProducts = products.filter((product) => !product.isDemo);
+    const newest = [...realProducts].filter((product) => product.isNew).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return {
+      popular: realProducts
+        .filter((product) => (product.popularity ?? 0) > 0)
+        .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
+        .slice(0, SHELF_SIZE),
+      newest: newest.slice(0, SHELF_SIZE),
+      bestSellers: realProducts
+        .filter((p) => (p.soldCount ?? 0) > 0)
+        .sort((a, b) => (b.soldCount ?? 0) - (a.soldCount ?? 0))
+        .slice(0, SHELF_SIZE),
+      promotions: realProducts
+        .filter((p) => discountPercent(p) > 0)
+        .sort((a, b) => discountPercent(b) - discountPercent(a))
+        .slice(0, SHELF_SIZE),
+      nearby: realProducts.filter((p) => cityOf(p.location) === city && p.stock > 0).slice(0, SHELF_SIZE),
+      local: realProducts.filter((p) => p.isLocal).slice(0, SHELF_SIZE),
+    };
+  }, [products, city]);
+  const hasDemo = products.some((p) => p.isDemo);
+  const shelfProps = { wishlist, onOpenProduct, onAddToCart, onToggleWishlist };
+  const seeAll = (view: CatalogView, params: NavigateParams = {}) => () =>
+    onNavigate('catalog', { category: 'all', view, ...params });
 
   return (
     <div className="pb-6 lg:pb-0">
@@ -177,6 +275,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         </section>
 
+        {/* Vidéo de présentation (motion design, musique, voix off) : en 2e position, aperçu en grand, lecture HD au toucher */}
+        <PresentationVideo />
+
         {installBanner}
 
         <section className="group relative overflow-hidden rounded-[28px] bg-gradient-to-r from-brand-900 via-brand-800 to-[#2f5c45] text-white shadow-[0_30px_80px_-28px_rgba(15,23,42,0.7)]">
@@ -210,9 +311,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
           </div>
         </section>
-
-        {/* Vidéo de présentation (motion design) : aperçu, lecture en grand au toucher */}
-        <PresentationVideo />
 
         {/* Catégories */}
         <section aria-labelledby="home-categories" {...categoriesReveal}>
@@ -254,25 +352,53 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </ul>
         </section>
 
-        {/* Produits populaires */}
-        <section id="produits" aria-labelledby="home-popular" {...popularReveal}>
-          <SectionHeader
-            title={<span id="home-popular">{t('home.popular')}</span>}
-            onAction={() => onNavigate('catalog', { category: 'all' })}
-          />
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-5">
-            {popular.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                isFavorite={wishlist.includes(product.id)}
-                onOpen={onOpenProduct}
-                onAddToCart={onAddToCart}
-                onToggleWishlist={onToggleWishlist}
-              />
-            ))}
-          </div>
-        </section>
+        {/* Produits : populaires, nouveautés, meilleures ventes et promotions (si des données existent) */}
+        <div id="produits" className="space-y-7 lg:space-y-14 scroll-mt-24">
+          {hasDemo && (
+            <p className="flex items-start gap-2 text-xs text-slate-500 -mb-3 lg:-mb-8">
+              <i className="fa-solid fa-circle-info mt-0.5" aria-hidden="true"></i>
+              {t('home.demoNotice')}
+            </p>
+          )}
+          {shelves.popular.length > 0 && (
+            <ProductShelf
+              id="home-popular"
+              title={t('home.popular')}
+              products={shelves.popular}
+              desktopCount={10}
+              onSeeAll={seeAll('populaires')}
+              {...shelfProps}
+            />
+          )}
+          {shelves.newest.length > 0 && (
+            <ProductShelf
+              id="home-new"
+              title={t('home.newArrivals')}
+              products={shelves.newest}
+              onSeeAll={seeAll('nouveautes')}
+              {...shelfProps}
+            />
+          )}
+          {shelves.bestSellers.length > 0 && (
+            <ProductShelf
+              id="home-bestsellers"
+              title={t('home.bestSellers')}
+              products={shelves.bestSellers}
+              onSeeAll={seeAll('meilleures-ventes')}
+              {...shelfProps}
+            />
+          )}
+          {shelves.promotions.length > 0 && (
+            <ProductShelf
+              id="home-promotions"
+              title={t('home.promotions')}
+              hint={t('home.promotionsHint')}
+              products={shelves.promotions}
+              onSeeAll={seeAll('promotions')}
+              {...shelfProps}
+            />
+          )}
+        </div>
 
         {/* Vendre */}
         <section className="group relative overflow-hidden rounded-2xl lg:rounded-3xl bg-brand-900 text-white" {...sellReveal}>
@@ -300,6 +426,43 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             />
           </div>
         </section>
+
+        {/* Près de chez vous : la ville se change ici (elle sert aussi au paiement) */}
+        <ProductShelf
+          id="home-nearby"
+          title={
+            <span className="inline-flex flex-wrap items-center gap-x-2">
+              {t('home.nearby')}
+              <select
+                value={city}
+                onChange={(e) => onCityChange(e.target.value)}
+                aria-label={t('home.nearbyCity')}
+                className="h-8 lg:h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm lg:text-base font-semibold text-brand-900 focus:outline-none focus:border-brand-900 cursor-pointer"
+              >
+                {CITIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </span>
+          }
+          products={shelves.nearby}
+          onSeeAll={seeAll('proches', { city })}
+          empty={t('home.nearbyEmpty', { city })}
+          {...shelfProps}
+        />
+
+        {shelves.local.length > 0 && (
+          <ProductShelf
+            id="home-local"
+            title={t('home.local')}
+            hint={t('home.localHint')}
+            products={shelves.local}
+            onSeeAll={seeAll('locaux')}
+            {...shelfProps}
+          />
+        )}
 
         {/* Engagements */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-5" {...trustReveal}>

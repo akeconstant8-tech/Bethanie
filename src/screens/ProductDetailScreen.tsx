@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { NavigateParams, Product, Review, ScreenType } from '../types';
 import { api, errorMessage } from '../api/client';
-import { ProductCard, badgeColor } from '../components/ProductCard';
+import { ProductCard, discountPercent as percentOff, productBadges, useBadgeLabel } from '../components/ProductCard';
 import {
   HeartBurst,
   QuantityStepper,
@@ -13,8 +13,8 @@ import {
   cardClass,
   inputClass,
 } from '../components/ui';
-import { useI18n } from '../i18n';
-import { formatPrice } from '../utils/commerce';
+import { TranslationKey, useI18n } from '../i18n';
+import { CITIES, DELIVERY_METHODS, LOW_STOCK, formatPrice, getDeliveryFee } from '../utils/commerce';
 import { SHARED_PHOTO, flyToCart, isOnScreen, supportsViewTransitions } from '../utils/motion';
 
 interface ProductDetailScreenProps {
@@ -25,13 +25,16 @@ interface ProductDetailScreenProps {
   onNavigate: (screen: ScreenType, params?: NavigateParams) => void;
   onBack: () => void;
   onOpenProduct: (product: Product) => void;
-  onAddToCart: (product: Product, quantity?: number, color?: string, size?: string) => void;
-  onBuyNow: (product: Product, quantity: number, color?: string, size?: string) => void;
+  onAddToCart: (product: Product, quantity?: number, color?: string, size?: string) => boolean | void;
+  onBuyNow: (product: Product, quantity: number, color?: string, size?: string) => boolean | void;
   onToggleWishlist: (productId: string) => void;
   onNotify: (text: string) => void;
   isLoggedIn: boolean;
   /** Appelé quand la note du produit change (nouvel avis). */
   onProductUpdated: (product: Product) => void;
+  /** Ville de livraison du client (frais affichés sur la fiche, reprise au paiement). */
+  city: string;
+  onCityChange: (city: string) => void;
 }
 
 type Tab = 'caracteristiques' | 'avis';
@@ -53,16 +56,27 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
   onNotify,
   isLoggedIn,
   onProductUpdated,
+  city,
+  onCityChange,
 }) => {
-  const { t, tn, categoryName, badgeLabel } = useI18n();
+  const { t, tn, categoryName } = useI18n();
+  const badgeLabel = useBadgeLabel();
   const gallery = useMemo(() => Array.from(new Set([product.image, ...(product.additionalImages ?? [])])), [product]);
-  const hasCharacteristics = !!product.characteristics && Object.keys(product.characteristics).length > 0;
+  // État et référence en tête des caractéristiques, puis celles du vendeur.
+  const characteristics = useMemo(
+    () => ({
+      [t('product.condition')]: t(`product.condition.${product.condition}` as TranslationKey),
+      [t('product.reference')]: product.reference,
+      ...(product.characteristics ?? {}),
+    }),
+    [product, t]
+  );
 
   const [activeImage, setActiveImage] = useState(gallery[0]);
   const [color, setColor] = useState(product.availableColors?.[0]?.name);
   const [size, setSize] = useState(product.availableSizes?.length === 1 ? product.availableSizes[0] : undefined);
   const [quantity, setQuantity] = useState(1);
-  const [tab, setTab] = useState<Tab>(hasCharacteristics ? 'caracteristiques' : 'avis');
+  const [tab, setTab] = useState<Tab>('caracteristiques');
   const [expanded, setExpanded] = useState(false);
   const [sizeError, setSizeError] = useState(false);
   const [reviews, setReviews] = useState<Review[] | null>(null);
@@ -94,19 +108,29 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
   // Avec les View Transitions, la photo arrive déjà animée depuis la carte ; sinon, léger zoom d'entrée.
   const [photoAnimation] = useState(() => (supportsViewTransitions() ? '' : 'animate-scale-in'));
   const outOfStock = product.stock <= 0;
-  const discountPercent = product.originalPrice
-    ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
-    : 0;
-  const similar = products.filter((p) => p.id !== product.id && p.category === product.category).slice(0, 4);
+  const discountPercent = percentOff(product);
+  const badges = productBadges(product);
+  // Produits similaires : même sous-catégorie d'abord, puis même catégorie (disponibles avant les ruptures).
+  const similar = products
+    .filter((p) => p.id !== product.id && p.category === product.category)
+    .map((p) => ({ p, score: (p.subcategory && p.subcategory === product.subcategory ? 2 : 0) + (p.stock > 0 ? 1 : 0) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4)
+    .map(({ p }) => p);
+  const lineTotal = product.price * quantity;
   const needsSize = !!product.availableSizes && product.availableSizes.length > 1;
-  const stockLabel = outOfStock
+  const stockLabel = product.isDemo
+    ? t('product.demo.stock')
+    : outOfStock
     ? t('common.outOfStock')
-    : product.stock <= 5
+    : product.stock <= LOW_STOCK
     ? t('common.lowStock', { n: product.stock })
     : t('product.inStock');
-  const stockStyle = outOfStock
+  const stockStyle = product.isDemo
     ? 'bg-slate-100 text-slate-600'
-    : product.stock <= 5
+    : outOfStock
+    ? 'bg-slate-100 text-slate-600'
+    : product.stock <= LOW_STOCK
     ? 'bg-amber-50 text-amber-800'
     : 'bg-emerald-50 text-emerald-700';
 
@@ -120,8 +144,9 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
   };
 
   const addToCart = (event: React.MouseEvent<HTMLElement>) => {
+    if (product.isDemo || outOfStock) return;
     if (!validate()) return;
-    onAddToCart(product, quantity, color, size);
+    if (onAddToCart(product, quantity, color, size) === false) return;
     setJustAdded(true);
     window.clearTimeout(addedTimer.current);
     addedTimer.current = window.setTimeout(() => setJustAdded(false), 1600);
@@ -129,7 +154,7 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
     const photo = mainPhoto.current;
     flyToCart(gallery[0] ?? product.image, photo && isOnScreen(photo) ? photo : event.currentTarget);
   };
-  const buyNow = () => validate() && onBuyNow(product, quantity, color, size);
+  const buyNow = () => !product.isDemo && !outOfStock && validate() && onBuyNow(product, quantity, color, size);
 
   const share = async () => {
     const url = window.location.href;
@@ -220,10 +245,14 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
                   </button>
                 </div>
               </div>
-              {product.discountBadge && (
-                <span className={`absolute bottom-4 left-4 text-xs font-bold px-2.5 py-1 rounded-lg uppercase ${badgeColor(product.discountBadge)}`}>
-                  {badgeLabel(product.discountBadge)}
-                </span>
+              {badges.length > 0 && (
+                <div className="absolute bottom-4 left-4 flex flex-wrap gap-1.5">
+                  {badges.map((badge) => (
+                    <span key={badge.id} className={`text-xs font-bold px-2.5 py-1 rounded-lg uppercase ${badge.className}`}>
+                      {badgeLabel(badge, product)}
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
             {gallery.length > 1 && (
@@ -243,6 +272,23 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
                 ))}
               </div>
             )}
+            {product.photoCredit && (
+              <p className="px-4 lg:px-0 text-[11px] text-slate-400">
+                {t('product.photoCredit', { author: product.photoCredit.author })} ·{' '}
+                {product.photoCredit.licenceUrl ? (
+                  <a href={product.photoCredit.licenceUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600">
+                    {product.photoCredit.licence}
+                  </a>
+                ) : (
+                  product.photoCredit.licence
+                )}{' '}
+                ·{' '}
+                <a href={product.photoCredit.source} target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600">
+                  {t('product.photoSource')}
+                </a>{' '}
+                · {t('product.photoCropped')}
+              </p>
+            )}
           </div>
 
           {/* Informations */}
@@ -254,12 +300,38 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
                 </p>
               )}
               <h1 className="text-xl lg:text-3xl font-semibold text-slate-900 text-balance">{product.title}</h1>
-              <button onClick={showReviews} className="mt-2 flex items-center gap-2 text-sm cursor-pointer group">
-                <Stars rating={product.rating} />
-                <span className="font-semibold text-slate-800">{product.rating}</span>
-                <span className="text-slate-500 group-hover:text-brand-900 group-hover:underline">
-                  {tn('product.reviews', product.reviewsCount)}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                <span
+                  className={`font-semibold px-2 py-0.5 rounded-md ${
+                    product.condition === 'occasion' ? 'bg-sky-50 text-sky-800' : 'bg-emerald-50 text-emerald-800'
+                  }`}
+                >
+                  {t(`product.condition.${product.condition}` as TranslationKey)}
                 </span>
+                {product.isLocal && !product.isDemo && (
+                  <span className="font-semibold px-2 py-0.5 rounded-md bg-orange-50 text-orange-800">
+                    <i className="fa-solid fa-location-dot mr-1" aria-hidden="true"></i>
+                    {t('product.localMade')}
+                  </span>
+                )}
+                {product.isDemo && (
+                  <span className="font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">{t('badge.demo')}</span>
+                )}
+                <span className="text-slate-400">{t('product.ref', { ref: product.reference })}</span>
+              </div>
+              <button onClick={showReviews} className="mt-2 flex items-center gap-2 text-sm cursor-pointer group">
+                {!product.isDemo && product.reviewsCount > 0 ? (
+                  <>
+                    <Stars rating={product.rating} />
+                    <span className="font-semibold text-slate-800">{product.rating}</span>
+                    <span className="text-slate-500 group-hover:text-brand-900 group-hover:underline">
+                      {tn('product.reviews', product.reviewsCount)}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-slate-500 group-hover:text-brand-900 group-hover:underline">{t('product.noReviewsYet')}</span>
+                )}
+                {!product.isDemo && product.soldCount ? <span className="text-slate-400">· {tn('card.sold', product.soldCount)}</span> : null}
               </button>
             </div>
 
@@ -267,11 +339,24 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
               <span className="text-2xl lg:text-3xl font-display font-bold text-brand-900 tabular-nums">
                 {formatPrice(product.price)}
               </span>
-              {product.originalPrice && (
-                <span className="text-xs font-bold bg-red-50 text-red-700 px-2 py-0.5 rounded-md">-{discountPercent}%</span>
+              {discountPercent > 0 && (
+                <>
+                  <s className="text-sm text-slate-400 tabular-nums">{formatPrice(product.originalPrice!)}</s>
+                  <span className="text-xs font-bold bg-red-50 text-red-700 px-2 py-0.5 rounded-md">-{discountPercent}%</span>
+                </>
               )}
               <span className={`ml-auto text-xs font-semibold px-3 py-1 rounded-full ${stockStyle}`}>{stockLabel}</span>
             </div>
+
+            {product.isDemo && (
+              <div className="flex gap-3 rounded-2xl bg-slate-50 border border-slate-200 p-3.5 text-sm" role="note">
+                <i className="fa-solid fa-circle-info text-slate-500 mt-0.5" aria-hidden="true"></i>
+                <p className="text-slate-600">
+                  <strong className="block text-slate-800">{t('product.demo.title')}</strong>
+                  {t('product.demo.text')}
+                </p>
+              </div>
+            )}
 
             <div>
               <p className={`text-sm text-slate-600 leading-relaxed ${expanded ? '' : 'line-clamp-3'}`}>{product.description}</p>
@@ -309,7 +394,7 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
                   </div>
                 </div>
               )}
-              {!outOfStock && (
+              {!outOfStock && !product.isDemo && (
                 <div>
                   <p className="text-sm font-semibold text-slate-900 mb-2">{t('product.quantity')}</p>
                   <QuantityStepper
@@ -353,14 +438,14 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
             <div className="hidden lg:flex gap-3 pt-1">
               <button
                 onClick={addToCart}
-                disabled={outOfStock}
+                disabled={outOfStock || Boolean(product.isDemo)}
                 className={`${btnPrimary} flex-1 h-12 ${justAdded ? 'bg-emerald-600! hover:bg-emerald-600!' : ''}`}
               >
                 <i key={justAdded ? 'ok' : 'add'} className={`fa-solid ${justAdded ? 'fa-check animate-pop' : 'fa-cart-plus'}`}></i>
-                {justAdded ? t('product.added') : t('product.addToCart')}
+                {product.isDemo ? t('card.demoOnly') : justAdded ? t('product.added') : t('product.addToCart')}
               </button>
-              <button onClick={buyNow} disabled={outOfStock} className={`${btnGold} flex-1 h-12`}>
-                {t('product.buyNow')}
+              <button onClick={buyNow} disabled={outOfStock || Boolean(product.isDemo)} className={`${btnGold} flex-1 h-12`}>
+                {product.isDemo ? t('card.demoOnly') : t('product.buyNow')}
               </button>
             </div>
 
@@ -372,13 +457,17 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-slate-900 truncate">{product.vendor.name}</p>
                 <p className="text-xs text-slate-500 truncate">
-                  {product.vendor.verified && (
-                    <span className="text-brand-700 font-medium">
-                      <i className="fa-solid fa-circle-check mr-1"></i>
-                      {t('product.verifiedSeller')} •{' '}
-                    </span>
+                  {product.vendor.isDemo ? (
+                    <span className="text-slate-600 font-medium">{t('product.demoShop')} • </span>
+                  ) : (
+                    product.vendor.verified && (
+                      <span className="text-brand-700 font-medium">
+                        <i className="fa-solid fa-circle-check mr-1"></i>
+                        {t('product.verifiedSeller')} •{' '}
+                      </span>
+                    )
                   )}
-                  {product.vendor.location}
+                  {product.location}
                 </p>
               </div>
               <button
@@ -389,18 +478,69 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
               </button>
             </div>
 
-            <ul className="grid grid-cols-3 gap-2 text-[11px] lg:text-xs text-slate-600">
-              {[
-                ['fa-truck-fast', t('product.perk.delivery')],
-                ['fa-rotate-left', t('product.perk.returns')],
-                ['fa-shield-halved', t('common.securePayment')],
-              ].map(([icon, label]) => (
-                <li key={label} className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-2 bg-brand-50/60 rounded-xl p-2.5 text-center lg:text-left">
-                  <i className={`fa-solid ${icon} text-brand-900`}></i>
-                  {label}
-                </li>
-              ))}
-            </ul>
+            {!product.isDemo && (
+              <>
+                <section className="rounded-2xl border border-slate-200/70 bg-white p-3.5 space-y-2.5" aria-labelledby="product-delivery">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 id="product-delivery" className="text-sm font-semibold text-slate-900">
+                      <i className="fa-solid fa-truck-fast text-brand-900 mr-2" aria-hidden="true"></i>
+                      {t('product.delivery.title')}
+                    </h2>
+                    <label className="flex items-center gap-2 text-xs text-slate-500">
+                      {t('product.delivery.to')}
+                      <select
+                        value={city}
+                        onChange={(e) => onCityChange(e.target.value)}
+                        className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-brand-900 cursor-pointer"
+                      >
+                        {CITIES.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <ul className="divide-y divide-slate-100 text-xs">
+                    {DELIVERY_METHODS.map((m) => {
+                      const unavailable = m.id === 'express' && city !== 'Abidjan';
+                      const fee = getDeliveryFee(m.id, city, lineTotal);
+                      return (
+                        <li key={m.id} className={`flex items-center gap-3 py-2 ${unavailable ? 'opacity-50' : ''}`}>
+                          <i className={`fa-solid ${m.icon} w-4 text-slate-400`} aria-hidden="true"></i>
+                          <span className="flex-1 min-w-0">
+                            <span className="block font-semibold text-slate-800">{t(`delivery.${m.id}.label` as TranslationKey)}</span>
+                            <span className="block text-slate-500">{t(`delivery.${m.id}.description` as TranslationKey)}</span>
+                          </span>
+                          <span className="font-semibold text-slate-800 tabular-nums whitespace-nowrap">
+                            {unavailable ? '—' : fee === 0 ? t('common.free') : formatPrice(fee)}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {product.deliveryNote && (
+                    <p className="text-xs text-slate-600 bg-surface-light rounded-xl px-3 py-2">
+                      <i className="fa-solid fa-circle-info text-slate-400 mr-1.5" aria-hidden="true"></i>
+                      {product.deliveryNote}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-slate-400">{t('product.delivery.hint')}</p>
+                </section>
+
+                <ul className="grid grid-cols-2 gap-2 text-[11px] lg:text-xs text-slate-600">
+                  {[
+                    ['fa-rotate-left', t('product.perk.returns')],
+                    ['fa-shield-halved', t('common.securePayment')],
+                  ].map(([icon, label]) => (
+                    <li key={label} className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-2 bg-brand-50/60 rounded-xl p-2.5 text-center lg:text-left">
+                      <i className={`fa-solid ${icon} text-brand-900`}></i>
+                      {label}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
         </section>
 
@@ -410,7 +550,7 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
             {(
               [
                 ['caracteristiques', t('product.characteristics')],
-                ['avis', t('product.customerReviews', { n: product.reviewsCount })],
+                ['avis', t('product.customerReviews', { n: product.isDemo ? 0 : product.reviewsCount })],
               ] as [Tab, string][]
             ).map(([id, label]) => (
               <button
@@ -428,19 +568,16 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
           </div>
 
           <div className="p-4 lg:p-8">
-            {tab === 'caracteristiques' &&
-              (hasCharacteristics ? (
-                <dl className="max-w-3xl divide-y divide-slate-100 rounded-xl border border-slate-100 overflow-hidden">
-                  {Object.entries(product.characteristics!).map(([key, value]) => (
-                    <div key={key} className="grid grid-cols-[40%_1fr] gap-4 px-4 py-3 text-sm even:bg-surface-light">
-                      <dt className="font-medium text-slate-800">{key}</dt>
-                      <dd className="text-slate-600">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              ) : (
-                <p className="text-sm text-slate-500">{t('product.noCharacteristics')}</p>
-              ))}
+            {tab === 'caracteristiques' && (
+              <dl className="max-w-3xl divide-y divide-slate-100 rounded-xl border border-slate-100 overflow-hidden">
+                {Object.entries(characteristics).map(([key, value]) => (
+                  <div key={key} className="grid grid-cols-[40%_1fr] gap-4 px-4 py-3 text-sm even:bg-surface-light">
+                    <dt className="font-medium text-slate-800">{key}</dt>
+                    <dd className="text-slate-600">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
 
             {tab === 'avis' && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
@@ -493,7 +630,9 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
                   ))}
                 </div>
 
-                {!isLoggedIn ? (
+                {product.isDemo ? (
+                  <p className="self-start rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">{t('product.demo.reviews')}</p>
+                ) : !isLoggedIn ? (
                   <div className="bg-surface-light rounded-2xl p-5 space-y-3 self-start text-sm">
                     <h3 className="font-semibold text-slate-900">{t('product.writeReview')}</h3>
                     <p className="text-slate-500">{t('product.loginToReview')}</p>
@@ -582,7 +721,7 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
         </button>
         <button
           onClick={addToCart}
-          disabled={outOfStock}
+          disabled={outOfStock || Boolean(product.isDemo)}
           className={`${btnPrimary} flex-1 min-w-0 h-12 px-2 text-[13px] min-[400px]:text-sm leading-tight text-center ${
             justAdded ? 'bg-emerald-600! hover:bg-emerald-600!' : ''
           }`}
@@ -592,16 +731,14 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
               <i className="fa-solid fa-check animate-pop"></i>
               {t('product.added')}
             </>
-          ) : (
-            t('product.addToCart')
-          )}
+          ) : product.isDemo ? t('card.demoOnly') : t('product.addToCart')}
         </button>
         <button
           onClick={buyNow}
-          disabled={outOfStock}
+          disabled={outOfStock || Boolean(product.isDemo)}
           className={`${btnGold} flex-1 min-w-0 h-12 px-2 text-[13px] min-[400px]:text-sm leading-tight text-center`}
         >
-          {t('product.buyNow')}
+          {product.isDemo ? t('card.demoOnly') : t('product.buyNow')}
         </button>
       </div>
     </div>

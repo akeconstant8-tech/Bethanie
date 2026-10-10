@@ -18,6 +18,18 @@ export interface Vendor {
   reviewsCount: number;
   avatarText?: string;
   articlesCount?: number;
+  /** Boutique fictive du catalogue de démonstration. */
+  isDemo?: boolean;
+}
+
+export type ProductCondition = 'neuf' | 'occasion';
+
+/** Auteur et licence d'une photo libre de droits (produits de démonstration). */
+export interface PhotoCredit {
+  author: string;
+  licence: string;
+  licenceUrl?: string;
+  source: string;
 }
 
 export interface Product {
@@ -38,10 +50,29 @@ export interface Product {
   description: string;
   characteristics?: Record<string, string>;
   stock: number;
+  /** Neuf ou d'occasion. */
+  condition: ProductCondition;
+  /** Référence unique affichée sur la fiche. */
+  reference: string;
+  /** Date de mise en vente (ISO). */
+  createdAt: string;
+  /** Mis en vente il y a moins de 30 jours par un vrai vendeur. */
   isNew?: boolean;
   isTrending?: boolean;
   isBio?: boolean;
+  /** Promotion fixée par le vendeur : ancien prix (originalPrice) supérieur au prix. */
   isPromo?: boolean;
+  /** Produit d'exemple du catalogue de démonstration (boutique fictive). */
+  isDemo?: boolean;
+  /** Produit ou fabrication ivoirienne. */
+  isLocal?: boolean;
+  /** Indication de livraison donnée par le vendeur. */
+  deliveryNote?: string;
+  photoCredit?: PhotoCredit;
+  /** Articles vendus et payés (vraies commandes seulement). */
+  soldCount?: number;
+  /** Ventes, favoris et avis réels réunis : sert à classer les « Populaires ». */
+  popularity?: number;
   availableColors?: { name: string; hex: string }[];
   availableSizes?: string[];
 }
@@ -162,9 +193,15 @@ export type AccountTab = 'overview' | 'orders' | 'wishlist' | 'addresses' | 'pay
 
 export type SellerTab = 'dashboard' | 'products' | 'orders' | 'stats' | 'new';
 
+/** Sélections de l'accueil ouvertes en entier dans le catalogue (« Voir tout »). */
+export type CatalogView = 'populaires' | 'nouveautes' | 'meilleures-ventes' | 'promotions' | 'proches' | 'locaux';
+
 export interface NavigateParams {
   category?: string;
   vendor?: string;
+  view?: CatalogView;
+  /** Ville (filtre « Localisation » du catalogue). */
+  city?: string;
   productId?: string;
   orderId?: string;
   tab?: AccountTab;
@@ -214,6 +251,20 @@ export interface ProductDraft {
   imageData?: string;
   /** Photos supplémentaires (2 au maximum), même format. */
   extraImagesData?: string[];
+  condition?: ProductCondition;
+  deliveryNote?: string;
+}
+
+/** Modification d'un produit par son vendeur (champs fournis seulement). */
+export interface ProductPatch {
+  title?: string;
+  description?: string;
+  price?: number;
+  /** Ancien prix barré ; null retire la promotion. */
+  originalPrice?: number | null;
+  stock?: number;
+  condition?: ProductCondition;
+  deliveryNote?: string;
 }
 
 export interface CheckoutPayload {

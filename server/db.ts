@@ -319,6 +319,26 @@ await engine.script(`
   UPDATE shops SET category = 'maison' WHERE category = 'artisanat';
 `);
 
+// Catalogue enrichi (10 octobre 2026) : état neuf ou d'occasion, référence, indication de livraison, auteur et licence
+// de la photo, produit local ivoirien ; produits, boutiques et commandes de démonstration séparés des vrais.
+await addColumn('products', 'item_condition', `TEXT NOT NULL DEFAULT 'neuf'`);
+await addColumn('products', 'reference', 'TEXT');
+await addColumn('products', 'delivery_note', 'TEXT');
+await addColumn('products', 'photo_credit', 'TEXT');
+await addColumn('products', 'is_local', 'INTEGER NOT NULL DEFAULT 0');
+await addColumn('products', 'is_demo', 'INTEGER NOT NULL DEFAULT 0');
+await addColumn('shops', 'is_demo', 'INTEGER NOT NULL DEFAULT 0');
+await addColumn('orders', 'is_demo', 'INTEGER NOT NULL DEFAULT 0');
+await engine.script(`
+  CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id);
+  CREATE INDEX IF NOT EXISTS idx_wishlist_product ON wishlist(product_id);
+  -- Petites valeurs de fonctionnement (ex. version du catalogue de démonstration déjà en base).
+  CREATE TABLE IF NOT EXISTS app_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`);
+
 // Notifications GeniusPay déjà traitées : une notification rejouée (même identifiant) est ignorée.
 await engine.script(`
   CREATE TABLE IF NOT EXISTS payment_webhook_events (

@@ -73,14 +73,19 @@ const MyOrdersPage = pageQuery(100, 100);
 ordersRouter.get('/orders', async (req, res) => {
   const user = currentUser(req);
   const { limit, offset } = parse(MyOrdersPage, req.query);
-  const rows = await db.all('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?', user.id, limit, offset);
+  const rows = await db.all(
+    'SELECT * FROM orders WHERE user_id = ? AND is_demo = 0 ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    user.id, limit, offset
+  );
   res.json({ orders: await loadOrders(rows) });
 });
 
 ordersRouter.get('/orders/:id', async (req, res) => {
   const user = currentUser(req);
   const row = await getOrderRow(String(req.params.id));
-  if (row.user_id !== user.id && user.role !== 'admin') throw notFound('Commande introuvable.');
+  if ((row.user_id !== user.id && user.role !== 'admin') || (row.is_demo && user.role !== 'admin')) {
+    throw notFound('Commande introuvable.');
+  }
   res.json({ order: (await loadOrders([row]))[0] });
 });
 
@@ -120,6 +125,7 @@ ordersRouter.post('/orders', orderLimiter, async (req, res) => {
   const lines = data.items.map((item, index) => {
     const product = products[index];
     if (!product) throw conflict('Un produit de votre panier n’est plus disponible. Mettez votre panier à jour.');
+    if (product.isDemo) throw conflict('Les produits de démonstration ne peuvent pas être commandés.');
     const sizes = product.availableSizes ?? [];
     if (sizes.length > 1 && !item.size) throw badRequest(`Choisissez une taille pour « ${product.title} ».`);
     if (item.size && !sizes.includes(item.size)) throw badRequest(`Taille indisponible pour « ${product.title} ».`);
@@ -223,7 +229,7 @@ const paymentCheckLimiter = rateLimit({
 ordersRouter.post('/orders/:id/payment/check', paymentCheckLimiter, async (req, res) => {
   const user = currentUser(req);
   const row = await getOrderRow(String(req.params.id));
-  if (row.user_id !== user.id) throw notFound('Commande introuvable.');
+  if (row.user_id !== user.id || row.is_demo) throw notFound('Commande introuvable.');
   if (row.payment_reference && row.payment_status === 'en_attente') await reconcileOrderPayment(String(row.id));
   res.json({ order: (await loadOrders([await getOrderRow(String(row.id))]))[0] });
 });

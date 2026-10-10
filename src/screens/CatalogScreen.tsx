@@ -1,15 +1,21 @@
 import React, { useMemo, useState } from 'react';
-import { NavigateParams, Product, ScreenType } from '../types';
+import { CatalogView, NavigateParams, Product, ProductCondition, ScreenType } from '../types';
 import { INITIAL_CATEGORIES } from '../data/mockData';
-import { ProductCard } from '../components/ProductCard';
+import { ProductCard, discountPercent } from '../components/ProductCard';
 import { BottomSheet, EmptyState, MobileHeader, btnOutline, btnPrimary, cardClass } from '../components/ui';
 import { TranslationKey, useI18n } from '../i18n';
-import { formatPrice } from '../utils/commerce';
+import { CITIES, cityOf, formatPrice } from '../utils/commerce';
 
 interface CatalogScreenProps {
   products: Product[];
   initialCategory?: string;
   initialVendor?: string;
+  /** Sélection de l'accueil ouverte par « Voir tout ». */
+  initialView?: CatalogView;
+  /** Ville du filtre « Localisation » (sinon, pour « Près de chez vous », la ville du client). */
+  initialCity?: string;
+  /** Ville du client (choisie à l'accueil, sur une fiche ou au paiement). */
+  userCity: string;
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
   onNavigate: (screen: ScreenType, params?: NavigateParams) => void;
@@ -20,12 +26,31 @@ interface CatalogScreenProps {
   wishlist: string[];
 }
 
-const SORTS = ['relevance', 'price-asc', 'price-desc', 'rating'] as const;
+const SORTS = ['relevance', 'price-asc', 'price-desc', 'newest', 'popular', 'bestsellers', 'rating'] as const;
+type Sort = (typeof SORTS)[number];
+
+/** Tri de départ de chaque sélection de l'accueil. */
+const VIEW_SORT: Partial<Record<CatalogView, Sort>> = {
+  populaires: 'popular',
+  nouveautes: 'newest',
+  'meilleures-ventes': 'bestsellers',
+};
+
+/** Recherche sans tenir compte des accents ni des majuscules (« telephone » trouve « Téléphone »). */
+const fold = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+const chip = (active: boolean) =>
+  `h-9 px-3.5 rounded-full text-sm font-medium border cursor-pointer transition-colors ${
+    active ? 'bg-brand-900 border-brand-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:border-brand-900'
+  }`;
 
 export const CatalogScreen: React.FC<CatalogScreenProps> = ({
   products,
   initialCategory = 'all',
   initialVendor,
+  initialView,
+  initialCity,
+  userCity,
   searchQuery = '',
   onSearchChange,
   onNavigate,
@@ -43,9 +68,17 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
     () => Math.max(600000, Math.ceil(Math.max(0, ...products.map((p) => p.price)) / 5000) * 5000),
     [products]
   );
+  const [minPrice, setMinPrice] = useState(0);
   const [maxPrice, setMaxPrice] = useState<number>(priceCeiling);
   const [minRating, setMinRating] = useState<number>(0);
-  const [sortBy, setSortBy] = useState<(typeof SORTS)[number]>('relevance');
+  const [view, setView] = useState<CatalogView | undefined>(initialView);
+  const [sortBy, setSortBy] = useState<Sort>((initialView && VIEW_SORT[initialView]) || 'relevance');
+  const [city, setCity] = useState<string>(initialCity ?? (initialView === 'proches' ? userCity : 'all'));
+  const [condition, setCondition] = useState<'all' | ProductCondition>('all');
+  const [promoOnly, setPromoOnly] = useState(initialView === 'promotions');
+  const [localOnly, setLocalOnly] = useState(initialView === 'locaux');
+  const [inStockOnly, setInStockOnly] = useState(false);
+  const [showDemo, setShowDemo] = useState(true);
   const [mobileSearch, setMobileSearch] = useState(searchQuery);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -56,8 +89,24 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
       ),
     [products]
   );
+  // Villes où au moins un produit est en vente (plus la ville choisie, même sans produit).
+  const availableCities = useMemo(() => {
+    const present = new Set(products.map((p) => cityOf(p.location)).filter(Boolean));
+    return CITIES.filter((c) => present.has(c) || c === city);
+  }, [products, city]);
+  const hasDemo = products.some((p) => p.isDemo);
   const vendorName = initialVendor ? products.find((p) => p.vendor.id === initialVendor)?.vendor.name : undefined;
-  const activeFilters = selectedBrands.length + (maxPrice < priceCeiling ? 1 : 0) + (minRating > 0 ? 1 : 0);
+  const priceFiltered = minPrice > 0 || maxPrice < priceCeiling;
+  const activeFilters =
+    selectedBrands.length +
+    (priceFiltered ? 1 : 0) +
+    (minRating > 0 ? 1 : 0) +
+    (city !== 'all' ? 1 : 0) +
+    (condition !== 'all' ? 1 : 0) +
+    (promoOnly ? 1 : 0) +
+    (localOnly ? 1 : 0) +
+    (inStockOnly ? 1 : 0) +
+    (showDemo ? 0 : 1);
 
   const toggleBrand = (brand: string) =>
     setSelectedBrands((list) => (list.includes(brand) ? list.filter((b) => b !== brand) : [...list, brand]));
@@ -65,31 +114,71 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
   const resetFilters = () => {
     setSelectedCategory('all');
     setSelectedBrands([]);
+    setMinPrice(0);
     setMaxPrice(priceCeiling);
     setMinRating(0);
+    setView(undefined);
+    setSortBy('relevance');
+    setCity('all');
+    setCondition('all');
+    setPromoOnly(false);
+    setLocalOnly(false);
+    setInStockOnly(false);
+    setShowDemo(true);
   };
 
   const filteredProducts = useMemo(() => {
-    const q = searchQuery.toLowerCase();
+    const q = fold(searchQuery.trim());
+    // Pertinence d'une recherche : nom d'abord, puis marque, puis le reste (vendeur, description…).
+    const rank = (p: Product) =>
+      !q ? 0 : fold(p.title).includes(q) ? 0 : fold(p.brand ?? '').includes(q) ? 1 : 2;
     return products
       .filter((p) => {
         if (selectedCategory !== 'all' && p.category !== selectedCategory) return false;
         if (initialVendor && p.vendor.id !== initialVendor) return false;
-        if (q && ![p.title, p.description, p.brand ?? ''].some((text) => text.toLowerCase().includes(q))) return false;
-        if (p.price > maxPrice) return false;
-        if (minRating > 0 && p.rating < minRating) return false;
+        if (
+          q &&
+          ![p.title, p.brand ?? '', p.subcategory ?? '', p.vendor.name, p.description].some((text) => fold(text).includes(q))
+        )
+          return false;
+        if (p.price < minPrice || p.price > maxPrice) return false;
+        if (minRating > 0 && (p.reviewsCount === 0 || p.rating < minRating)) return false;
         if (selectedBrands.length > 0 && (!p.brand || !selectedBrands.includes(p.brand))) return false;
+        if (city !== 'all' && cityOf(p.location) !== city) return false;
+        if (condition !== 'all' && p.condition !== condition) return false;
+        if (promoOnly && discountPercent(p) === 0) return false;
+        if (localOnly && !p.isLocal) return false;
+        if (inStockOnly && p.stock <= 0) return false;
+        if (!showDemo && p.isDemo) return false;
+        if (view === 'populaires' && (p.isDemo || (p.popularity ?? 0) <= 0)) return false;
+        if (view === 'nouveautes' && (p.isDemo || !p.isNew)) return false;
+        if (view === 'promotions' && (p.isDemo || discountPercent(p) === 0)) return false;
+        if (view === 'proches' && p.isDemo) return false;
+        if (view === 'locaux' && p.isDemo) return false;
+        // « Meilleures ventes » : seulement les produits réellement vendus.
+        if (view === 'meilleures-ventes' && (p.isDemo || !p.soldCount)) return false;
+        if (sortBy === 'popular' && (p.isDemo || (p.popularity ?? 0) <= 0)) return false;
+        if (sortBy === 'newest' && p.isDemo) return false;
+        if (sortBy === 'bestsellers' && (p.isDemo || !p.soldCount)) return false;
         return true;
       })
       .sort((a, b) => {
         if (sortBy === 'price-asc') return a.price - b.price;
         if (sortBy === 'price-desc') return b.price - a.price;
+        if (sortBy === 'newest') return b.createdAt.localeCompare(a.createdAt);
+        if (sortBy === 'popular') return (b.popularity ?? 0) - (a.popularity ?? 0);
+        if (sortBy === 'bestsellers') return (b.soldCount ?? 0) - (a.soldCount ?? 0);
         if (sortBy === 'rating') return b.rating - a.rating;
-        return 0;
+        return rank(a) - rank(b);
       });
-  }, [products, selectedCategory, initialVendor, searchQuery, maxPrice, minRating, selectedBrands, sortBy]);
+  }, [
+    products, selectedCategory, initialVendor, searchQuery, minPrice, maxPrice, minRating, selectedBrands, city, condition,
+    promoOnly, localOnly, inStockOnly, showDemo, view, sortBy,
+  ]);
 
-  const title = vendorName ?? (selectedCategory === 'all' ? t('catalog.allProducts') : categoryName(selectedCategory));
+  const viewTitle = view ? t(`catalog.view.${view}` as TranslationKey, { city: city === 'all' ? userCity : city }) : undefined;
+  const title =
+    vendorName ?? viewTitle ?? (selectedCategory === 'all' ? t('catalog.allProducts') : categoryName(selectedCategory));
   const count = tn('common.productCount', filteredProducts.length);
 
   const clearSearch = () => {
@@ -99,24 +188,96 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
 
   const filterControls = (
     <div className="space-y-7">
-      <div>
-        <div className="flex items-center justify-between text-sm mb-3">
-          <span className="font-semibold text-slate-900">{t('catalog.maxPrice')}</span>
-          <span className="font-bold text-brand-900 tabular-nums">{formatPrice(maxPrice)}</span>
+      <div className="space-y-4">
+        <div>
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="font-semibold text-slate-900">{t('catalog.minPrice')}</span>
+            <span className="font-bold text-brand-900 tabular-nums">{formatPrice(minPrice)}</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max={priceCeiling}
+            step="5000"
+            value={minPrice}
+            onChange={(e) => {
+              const value = Number(e.target.value);
+              setMinPrice(value);
+              if (value > maxPrice) setMaxPrice(value);
+            }}
+            className="w-full cursor-pointer"
+            aria-label={t('catalog.minPrice')}
+          />
         </div>
-        <input
-          type="range"
-          min="5000"
-          max={priceCeiling}
-          step="5000"
-          value={maxPrice}
-          onChange={(e) => setMaxPrice(Number(e.target.value))}
-          className="w-full cursor-pointer"
-          aria-label={t('catalog.maxPrice')}
-        />
-        <div className="flex justify-between text-[11px] text-slate-400 mt-1">
-          <span>{formatPrice(5000)}</span>
-          <span>{formatPrice(priceCeiling)}</span>
+        <div>
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="font-semibold text-slate-900">{t('catalog.maxPrice')}</span>
+            <span className="font-bold text-brand-900 tabular-nums">{formatPrice(maxPrice)}</span>
+          </div>
+          <input
+            type="range"
+            min="5000"
+            max={priceCeiling}
+            step="5000"
+            value={maxPrice}
+            onChange={(e) => {
+              const value = Number(e.target.value);
+              setMaxPrice(value);
+              if (value < minPrice) setMinPrice(value);
+            }}
+            className="w-full cursor-pointer"
+            aria-label={t('catalog.maxPrice')}
+          />
+          <div className="flex justify-between text-[11px] text-slate-400 mt-1">
+            <span>{formatPrice(5000)}</span>
+            <span>{formatPrice(priceCeiling)}</span>
+          </div>
+        </div>
+      </div>
+
+      <label className="block">
+        <span className="block text-sm font-semibold text-slate-900 mb-2">{t('catalog.location')}</span>
+        <select
+          value={city}
+          onChange={(e) => setCity(e.target.value)}
+          className="w-full h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 focus:outline-none focus:border-brand-900 cursor-pointer"
+        >
+          <option value="all">{t('catalog.allCities')}</option>
+          {availableCities.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div>
+        <p className="text-sm font-semibold text-slate-900 mb-3">{t('catalog.condition')}</p>
+        <div className="flex flex-wrap gap-2">
+          {(['all', 'neuf', 'occasion'] as const).map((id) => (
+            <button key={id} onClick={() => setCondition(id)} aria-pressed={condition === id} className={chip(condition === id)}>
+              {id === 'all' ? t('catalog.conditionAll') : t(`product.condition.${id}` as TranslationKey)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <p className="text-sm font-semibold text-slate-900 mb-2">{t('catalog.options')}</p>
+        <div className="space-y-1">
+          {(
+            [
+              [promoOnly, setPromoOnly, 'catalog.promoOnly'],
+              [localOnly, setLocalOnly, 'catalog.localOnly'],
+              [inStockOnly, setInStockOnly, 'catalog.inStockOnly'],
+              ...(hasDemo ? [[showDemo, setShowDemo, 'catalog.showDemo']] : []),
+            ] as [boolean, (v: boolean) => void, TranslationKey][]
+          ).map(([checked, set, label]) => (
+            <label key={label} className="flex items-center gap-3 py-1.5 text-sm text-slate-700 cursor-pointer">
+              <input type="checkbox" checked={checked} onChange={(e) => set(e.target.checked)} className="w-4 h-4" />
+              {t(label)}
+            </label>
+          ))}
         </div>
       </div>
 
@@ -128,11 +289,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
               key={stars}
               onClick={() => setMinRating(minRating === stars ? 0 : stars)}
               aria-pressed={minRating === stars}
-              className={`h-9 px-3.5 rounded-full text-sm font-medium border cursor-pointer transition-colors ${
-                minRating === stars
-                  ? 'bg-brand-900 border-brand-900 text-white'
-                  : 'bg-white border-slate-200 text-slate-700 hover:border-brand-900'
-              }`}
+              className={chip(minRating === stars)}
             >
               <i className={`fa-solid fa-star mr-1.5 ${minRating === stars ? 'text-gold-400' : 'text-gold-500'}`}></i>
               {t('catalog.ratingAndUp', { n: stars.toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-US') })}
@@ -240,7 +397,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
         </nav>
 
         <div className="lg:grid lg:grid-cols-[17rem_1fr] lg:gap-8 items-start">
-          <aside className={`hidden lg:block ${cardClass} p-5 sticky top-36`}>
+          <aside className={`hidden lg:block ${cardClass} p-5 sticky top-36 max-h-[calc(100vh-10rem)] overflow-y-auto`}>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-base font-semibold text-slate-900">{t('catalog.filters')}</h2>
               <button onClick={resetFilters} className="text-xs font-semibold text-brand-900 hover:underline cursor-pointer">
@@ -283,7 +440,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
                     )}
                   </span>
                 )}
-                {vendorName && (
+                {(vendorName || view) && (
                   <button
                     onClick={() => onNavigate('catalog', { category: 'all' })}
                     className="text-xs font-semibold text-brand-900 hover:underline cursor-pointer"
@@ -296,7 +453,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
                 <span className="hidden sm:inline text-slate-500">{t('catalog.sortBy')}</span>
                 <select
                   value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as (typeof SORTS)[number])}
+                  onChange={(e) => setSortBy(e.target.value as Sort)}
                   className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 focus:outline-none focus:border-brand-900 cursor-pointer"
                   aria-label={t('catalog.sortBy')}
                 >

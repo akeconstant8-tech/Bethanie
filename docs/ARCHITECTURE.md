@@ -1,6 +1,6 @@
 # Architecture — Béthanie
 
-> Version 1.11 — 5 octobre 2026. Décrit le code tel qu’il est dans ce dépôt.
+> Version 1.12 — 10 octobre 2026. Décrit le code tel qu’il est dans ce dépôt.
 > Besoins fonctionnels et règles métier : voir [CAHIER_DES_CHARGES.md](CAHIER_DES_CHARGES.md).
 > Maquette de référence de l’interface : [docs/maquette/maquette-ux-ui.jpg](maquette/maquette-ux-ui.jpg).
 
@@ -18,6 +18,7 @@
 | 1.9 | 5 octobre 2026 | Contrôleur des transactions et commission de 5 % (`transactions.ts`, tables `order_settlements` et `transaction_log`, `routes/admin.ts`, `npm run controle`) ; en-têtes de sécurité communs au serveur et à Vercel (`security-policy.js`) ; rôle administrateur par `ADMIN_EMAILS` ; audit de sécurité (`docs/AUDIT_SECURITE.md`) |
 | 1.10 | 5 octobre 2026 | Annulation des commandes non payées après 2 h (`cancelUnpaidOrders`, déclenchée au plus une fois par minute par les requêtes de l’API, compatible Vercel) et statut « annulée » ; limite de 10 commandes / heure / compte ; identifiant du projet Firebase intégré à la fonction Vercel à la construction (`build-vercel.mjs`) ; un seul bouton Google ; logo à la place du sélecteur de ville sur l’accueil mobile (ville choisie au paiement) |
 | 1.11 | 5 octobre 2026 | Paiement en ligne réel : GeniusPay (Wave, Orange Money, MTN, Moov, carte), page de paiement sécurisée, retour vérifié auprès de GeniusPay (jamais sur la foi du navigateur), notifications signées (`routes/payments.ts` → `payments.ts`, HMAC-SHA256), commande annulée et stock remis en vente en cas d’échec ; route `POST /orders/:id/payment/check` ; `PAYMENT_PROVIDER` passe automatiquement à `geniuspay` dès que `GENIUSPAY_SECRET_KEY` est défini |
+| 1.12 | 10 octobre 2026 | Catalogue de 115 annonces d’exemple dans huit catégories, signalées « Démo » et exclues du panier, des commandes et des avis ; initialisation sans commandes ni paiements fictifs ; seules les annonces des vendeurs alimentent les sélections de popularité, nouveautés, ventes, promotions et proximité |
 
 Les diagrammes sont écrits en [Mermaid](https://mermaid.js.org/) : GitHub les affiche directement ; dans
 VS Code, installez une extension d’aperçu Mermaid.
@@ -116,8 +117,11 @@ flowchart TB
   génère `dist/sw.js`) ; il n’est pas enregistré pendant `npm run dev`. Pour tester l’installation et le hors
   ligne : `npm run build` puis `npm start`, et ouvrir `http://localhost:4000` (le navigateur accepte un service
   worker sur `localhost` sans HTTPS ; en ligne, HTTPS est obligatoire).
-- Au **premier démarrage**, la base est créée et remplie avec les données de démonstration
-  (`server/seed.ts`). `npm run db:reset` supprime la base (serveur arrêté) pour repartir de zéro.
+- Au **premier démarrage**, la base est créée avec un compte de démonstration et les annonces d’exemple de
+  `server/demo-sync.ts` ; aucune commande ni aucun paiement fictif n’est créé. Les produits marqués « Démo » sont
+  consultables, mais ne peuvent être achetés, évalués ni comptés dans les statistiques réelles. Les commandes
+  d’exemple historiques restent marquées comme telles et ne sont pas exposées aux clients. `npm run db:reset`
+  supprime la base (serveur arrêté) pour repartir de zéro.
 
 ---
 
@@ -435,7 +439,7 @@ utilitaires dans `src/index.css`, deux crochets React dans `components/ui.tsx`, 
 | Catégories de l’accueil | Au survol (ou au clavier) : l’illustration se soulève, une ombre douce apparaît sous son socle, le nom passe en vert avec un trait doré | `HomeScreen.tsx` ; nom mis en valeur aussi dans `CategoriesScreen.tsx` |
 | Catalogue | Le nombre de résultats et l’étiquette de recherche « se posent » à chaque changement ; pastille du nombre de filtres qui rebondit ; champ de recherche qui s’éclaire au focus | `CatalogScreen.tsx` |
 | Pied de page (ordinateur) | Les colonnes apparaissent l’une après l’autre au défilement ; les liens glissent légèrement au survol | `Footer.tsx` (`useReveal`) |
-| Vidéo de présentation (accueil) | Aperçu muet qui démarre automatiquement en boucle, encadré d’un liseré lumineux et marqué du drapeau ivoirien ; un toucher ouvre le lecteur plein écran (rendu à la racine, Échap / fond / croix pour fermer). « Activer le son » rétablit la bande-son de la vidéo : musique originale et voix off française y sont mélangées (la musique s’efface sous la voix). Le lecteur plein écran démarre avec le son et garde ses commandes vidéo ; le service worker laisse les médias au réseau (lecture par morceaux). Vidéo (`public/videos/`, 720 × 1280, 32 s, musique et voix off) ; source (animation, captures d’écran, bande-son, voix off d’origine) et version 1080 × 1920 pour les réseaux sociaux : `marketing/video-pub/` | `PresentationVideo.tsx`, `HomeScreen.tsx`, `pwa/service-worker.js` |
+| Vidéo de présentation (accueil) | Aperçu muet qui démarre automatiquement en boucle, encadré d’un liseré lumineux et marqué du drapeau ivoirien ; un toucher ouvre le lecteur plein écran (rendu à la racine, Échap / fond / croix pour fermer). « Activer le son » rétablit la bande-son de la vidéo : musique originale et voix off française y sont mélangées (la musique s’efface sous la voix). Le lecteur plein écran démarre avec le son et garde ses commandes vidéo ; le service worker laisse les médias au réseau (lecture par morceaux). Encart en 2e position de l’accueil (juste sous la bannière), grand aperçu ; sur ordinateur, chapitres (Découvrez, Commandez, Payez, Recevez, Vendez) qui ouvrent la vidéo au bon moment. Vidéos (`public/videos/`, 32 s, musique et voix off) : aperçu léger 540 × 960 (2 Mo) et version HD 1080 × 1920 du lecteur plein écran (13 Mo, téléchargée seulement à l’ouverture) ; source (animation, captures d’écran, bande-son, voix off d’origine) et version 1080 × 1920 pour les réseaux sociaux : `marketing/video-pub/` | `PresentationVideo.tsx`, `HomeScreen.tsx`, `pwa/service-worker.js` |
 | Sections de l’accueil | Apparition au défilement (`useReveal`, IntersectionObserver) | Catégories, produits populaires, espace vendeur, engagements |
 | Boutons | Enfoncement léger au clic (`scale(0.97)`), ombre au survol, reflet doré sur les boutons or | Règle globale `button:active`, `btnPrimary`, `btnGold` |
 | Micro-interactions | Cœur qui « pop » à l’ajout en favori, coche du panier, pastilles de nombre qui rebondissent, cloche qui s’agite (commande en cours), chevrons qui avancent au survol | `ProductCard`, `BottomNav`, `Navbar`, `ui.tsx` |

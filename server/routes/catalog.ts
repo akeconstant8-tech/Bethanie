@@ -5,7 +5,7 @@ import { CITIES } from '../../src/utils/commerce.ts';
 import { currentUser, requireAuth } from '../auth.ts';
 import { db, nowIso, transaction, type Row } from '../db.ts';
 import { badRequest, conflict, forbidden, notFound, pageQuery, parse } from '../http.ts';
-import { PRODUCT_SELECT, getProduct, loadMe, toProduct, toReview, toShop } from '../serializers.ts';
+import { DEMO_FILTER, PRODUCT_SELECT, getProduct, loadMe, toProduct, toReview, toShop } from '../serializers.ts';
 import { PLACEHOLDER_IMAGE, saveImageDataUrl } from '../uploads.ts';
 
 export const catalogRouter = Router();
@@ -23,7 +23,7 @@ const ListQuery = pageQuery(100, 500).extend({
 
 catalogRouter.get('/products', async (req, res) => {
   const query = parse(ListQuery, req.query);
-  const where = ['p.deleted_at IS NULL'];
+  const where = [`p.deleted_at IS NULL${DEMO_FILTER}`];
   const params: (string | number)[] = [];
   if (query.category && query.category !== 'all') {
     where.push('p.category = ?');
@@ -59,7 +59,12 @@ const ReviewsPage = pageQuery(50, 50);
 
 catalogRouter.get('/products/:id/reviews', async (req, res) => {
   const { limit, offset } = parse(ReviewsPage, req.query);
-  if (!(await getProduct(String(req.params.id)))) throw notFound('Ce produit n’est plus disponible.');
+  const product = await getProduct(String(req.params.id));
+  if (!product) throw notFound('Ce produit n’est plus disponible.');
+  if (product.isDemo) {
+    res.json({ reviews: [] });
+    return;
+  }
   const rows = await db.all(
     'SELECT * FROM reviews WHERE product_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
     String(req.params.id),
@@ -78,6 +83,7 @@ catalogRouter.post('/products/:id/reviews', requireAuth, async (req, res) => {
   const user = currentUser(req);
   const product = await getProduct(String(req.params.id));
   if (!product) throw notFound('Ce produit n’est plus disponible.');
+  if (product.isDemo) throw conflict('Les avis ne sont pas ouverts sur les produits de démonstration.');
   const data = parse(ReviewSchema, req.body);
 
   if (await db.get('SELECT 1 FROM reviews WHERE user_id = ? AND product_id = ?', user.id, product.id)) {
@@ -175,6 +181,8 @@ const ownedProduct = async (productId: string, shopId: string) => {
 };
 
 const price = z.number().int('Le prix doit être un nombre entier.').min(100, 'Prix minimum : 100 FCFA.').max(50_000_000);
+const condition = z.enum(['neuf', 'occasion']);
+const deliveryNote = z.string().trim().max(200, 'Indication de livraison trop longue (200 caractères max.).');
 
 const ProductSchema = z.object({
   title: z.string().trim().min(3, 'Le nom du produit est trop court.').max(120, 'Nom de produit trop long.'),
@@ -184,6 +192,8 @@ const ProductSchema = z.object({
   price,
   originalPrice: price.optional(),
   stock: z.number().int().min(0).max(100_000),
+  condition: condition.default('neuf'),
+  deliveryNote: deliveryNote.optional(),
   description: z.string().trim().min(10, 'Décrivez votre produit en quelques mots (10 caractères min.).').max(3000),
   sizes: z.array(z.string().trim().min(1).max(20)).max(20).optional(),
   characteristics: z
@@ -204,19 +214,22 @@ catalogRouter.post('/products', requireAuth, async (req, res) => {
   const image = data.imageData ? saveImageDataUrl(data.imageData) : PLACEHOLDER_IMAGE;
   const extraImages = data.imageData ? (data.extraImagesData ?? []).map(saveImageDataUrl) : [];
   const hasDiscount = data.originalPrice !== undefined && data.originalPrice > data.price;
-  const id = `${slugify(data.title)}-${crypto.randomBytes(3).toString('hex')}`;
+  const suffix = crypto.randomBytes(4).toString('hex');
+  const id = `${slugify(data.title)}-${suffix}`;
 
+  // « Nouveau » n'est plus enregistré : il est calculé d'après la date de mise en vente (serializers.ts).
   await db.run(
     `INSERT INTO products (id, shop_id, title, description, price, original_price, discount_badge, category, subcategory,
-       brand, location, stock, image, additional_images, characteristics, sizes, is_new, is_promo, position)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1000)`,
+       brand, location, stock, image, additional_images, characteristics, sizes, is_new, is_promo, position,
+       item_condition, reference, delivery_note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1000, ?, ?, ?)`,
     id,
     String(shop.id),
     data.title,
     data.description,
     data.price,
     hasDiscount ? data.originalPrice! : null,
-    hasDiscount ? `-${Math.round(((data.originalPrice! - data.price) / data.originalPrice!) * 100)}%` : 'Nouveau',
+    hasDiscount ? `-${Math.round(((data.originalPrice! - data.price) / data.originalPrice!) * 100)}%` : null,
     data.category,
     data.subcategory || null,
     data.brand || String(shop.name),
@@ -226,7 +239,10 @@ catalogRouter.post('/products', requireAuth, async (req, res) => {
     extraImages.length ? JSON.stringify(extraImages) : null,
     data.characteristics && Object.keys(data.characteristics).length ? JSON.stringify(data.characteristics) : null,
     data.sizes?.length ? JSON.stringify(data.sizes) : null,
-    hasDiscount ? 1 : 0
+    hasDiscount ? 1 : 0,
+    data.condition,
+    `BTH-${suffix.toUpperCase()}`,
+    data.deliveryNote || null
   );
   res.status(201).json({ product: await getProduct(id) });
 });
@@ -236,7 +252,11 @@ const ProductPatchSchema = z
     title: ProductSchema.shape.title,
     description: ProductSchema.shape.description,
     price,
+    /** Ancien prix barré (promotion) ; null la retire. */
+    originalPrice: price.nullable(),
     stock: ProductSchema.shape.stock,
+    condition,
+    deliveryNote,
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, 'Aucune modification fournie.');
@@ -246,14 +266,34 @@ catalogRouter.patch('/products/:id', requireAuth, async (req, res) => {
   const shop = await myShop(user.id);
   await ownedProduct(String(req.params.id), String(shop.id));
   const data = parse(ProductPatchSchema, req.body);
-  const columns = { title: data.title, description: data.description, price: data.price, stock: data.stock };
+  const columns = {
+    title: data.title,
+    description: data.description,
+    price: data.price,
+    original_price: data.originalPrice,
+    stock: data.stock,
+    item_condition: data.condition,
+    delivery_note: data.deliveryNote === undefined ? undefined : data.deliveryNote || null,
+  };
   // Noms de colonnes fixés ci-dessus (jamais venus de la requête) ; les valeurs passent par « ? ».
-  const entries = Object.entries(columns).filter(([, v]) => v !== undefined) as [string, string | number][];
-  await db.run(
-    `UPDATE products SET ${entries.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`,
-    ...entries.map(([, v]) => v),
-    String(req.params.id)
-  );
+  const entries = Object.entries(columns).filter(([, v]) => v !== undefined) as [string, string | number | null][];
+  await transaction(async () => {
+    await db.run(
+      `UPDATE products SET ${entries.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`,
+      ...entries.map(([, v]) => v),
+      String(req.params.id)
+    );
+    // Promotion toujours vraie : l'ancien prix doit rester supérieur au prix, sinon elle disparaît.
+    await db.run(
+      `UPDATE products SET
+         original_price = CASE WHEN original_price > price THEN original_price END,
+         is_promo = CASE WHEN original_price > price THEN 1 ELSE 0 END,
+         discount_badge = CASE WHEN original_price > price
+           THEN '-' || CAST(ROUND((original_price - price) * 100.0 / original_price) AS INTEGER) || '%' END
+       WHERE id = ?`,
+      String(req.params.id)
+    );
+  });
   res.json({ product: await getProduct(String(req.params.id)) });
 });
 

@@ -1,6 +1,7 @@
 import type { Me, Order, OrderStatus, PaymentStatus, Product, Review, SellerShop, Shop } from '../src/types/index.ts';
 import { ORDER_FLOW, formatDate, formatTime } from '../src/utils/commerce.ts';
 import { isGuestEmail } from './auth.ts';
+import { config } from './config.ts';
 import { db, type Row } from './db.ts';
 
 const json = <T>(value: unknown): T | undefined =>
@@ -10,11 +11,21 @@ const str = (value: unknown) => (value === null || value === undefined ? undefin
 
 /* ---------- Produits ---------- */
 
+/** Condition SQL qui masque les produits de démonstration quand CATALOGUE_DEMO=off (alias « p »). */
+export const DEMO_FILTER = config.demoCatalogue ? '' : ' AND p.is_demo = 0';
+
+/** Un produit garde le badge « Nouveau » 30 jours après sa mise en vente. */
+const NEW_FOR_MS = 30 * 24 * 3600 * 1000;
+
 export const PRODUCT_SELECT = `
   SELECT p.*,
          s.name AS shop_name, s.location AS shop_location, s.verified AS shop_verified,
-         s.rating AS shop_rating, s.reviews_count AS shop_reviews_count,
-         (SELECT COUNT(*) FROM products p2 WHERE p2.shop_id = s.id AND p2.deleted_at IS NULL) AS shop_articles
+         s.rating AS shop_rating, s.reviews_count AS shop_reviews_count, s.is_demo AS shop_is_demo,
+         (SELECT COUNT(*) FROM products p2 WHERE p2.shop_id = s.id AND p2.deleted_at IS NULL) AS shop_articles,
+         -- Ventes réelles : commandes payées, hors commandes d'exemple du compte de démonstration.
+         (SELECT COALESCE(SUM(i.quantity), 0) FROM order_items i JOIN orders o ON o.id = i.order_id
+           WHERE i.product_id = p.id AND o.payment_status = 'payé' AND o.is_demo = 0) AS sold_count,
+         (SELECT COUNT(*) FROM wishlist w WHERE w.product_id = p.id) AS favorites_count
   FROM products p
   JOIN shops s ON s.id = p.shop_id`;
 
@@ -28,6 +39,9 @@ export const toProduct = (row: Row): Product => {
     reviewsCount: Number(row.reviews_count),
     location: String(row.location),
     stock: Number(row.stock),
+    condition: row.item_condition === 'occasion' ? 'occasion' : 'neuf',
+    reference: str(row.reference) ?? `BTH-${String(row.id).slice(-6).toUpperCase()}`,
+    createdAt: String(row.created_at),
     image: String(row.image),
     description: String(row.description),
     vendor: {
@@ -38,6 +52,7 @@ export const toProduct = (row: Row): Product => {
       rating: Number(row.shop_rating),
       reviewsCount: Number(row.shop_reviews_count),
       articlesCount: Number(row.shop_articles),
+      ...(row.shop_is_demo ? { isDemo: true } : {}),
     },
   };
   if (row.original_price !== null) product.originalPrice = Number(row.original_price);
@@ -52,15 +67,26 @@ export const toProduct = (row: Row): Product => {
   if (colors?.length) product.availableColors = colors;
   const sizes = json<string[]>(row.sizes);
   if (sizes?.length) product.availableSizes = sizes;
-  if (row.is_new) product.isNew = true;
+  // Badges vrais uniquement : « Nouveau » d'après la date de mise en vente (jamais pour un produit d'exemple),
+  // « Promotion » seulement si le vendeur a fixé un ancien prix plus élevé.
+  if (!row.is_demo && Date.now() - Date.parse(String(row.created_at)) < NEW_FOR_MS) product.isNew = true;
   if (row.is_trending) product.isTrending = true;
   if (row.is_bio) product.isBio = true;
-  if (row.is_promo) product.isPromo = true;
+  if (product.originalPrice !== undefined && product.originalPrice > product.price) product.isPromo = true;
+  if (row.is_demo) product.isDemo = true;
+  if (row.is_local) product.isLocal = true;
+  if (row.delivery_note) product.deliveryNote = String(row.delivery_note);
+  const photoCredit = json<Product['photoCredit']>(row.photo_credit);
+  if (photoCredit) product.photoCredit = photoCredit;
+  const sold = Number(row.sold_count ?? 0);
+  if (sold > 0) product.soldCount = sold;
+  const popularity = sold * 3 + Number(row.favorites_count ?? 0) + product.reviewsCount * 2;
+  if (popularity > 0) product.popularity = popularity;
   return product;
 };
 
 export const getProduct = async (id: string): Promise<Product | undefined> => {
-  const row = await db.get(`${PRODUCT_SELECT} WHERE p.id = ? AND p.deleted_at IS NULL`, id);
+  const row = await db.get(`${PRODUCT_SELECT} WHERE p.id = ? AND p.deleted_at IS NULL${DEMO_FILTER}`, id);
   return row ? toProduct(row) : undefined;
 };
 

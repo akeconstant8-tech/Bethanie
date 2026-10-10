@@ -6,6 +6,26 @@ const TIME_ZONE = 'Africa/Abidjan';
 
 export const CITIES = ['Abidjan', 'Bouaké', 'Yamoussoukro', 'San-Pédro', 'Korhogo', 'Dakar'] as const;
 
+/** Communes et quartiers d'Abidjan que les vendeurs indiquent souvent à la place de la ville. */
+const ABIDJAN_AREAS = [
+  'Abobo', 'Adjamé', 'Angré', 'Anyama', 'Attécoubé', 'Bingerville', 'Cocody', 'Deux-Plateaux', 'Koumassi', 'Marcory',
+  'Plateau', 'Port-Bouët', 'Riviera', 'Songon', 'Treichville', 'Yopougon',
+];
+
+const fold = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/** Ville d'un lieu (« Cocody, Abidjan » ou « Marcory » → Abidjan) ; undefined si elle n'est pas dans la liste. */
+export const cityOf = (location: string): (typeof CITIES)[number] | undefined => {
+  const place = fold(location);
+  return (
+    CITIES.find((city) => place.includes(fold(city))) ??
+    (ABIDJAN_AREAS.some((area) => place.includes(fold(area))) ? 'Abidjan' : undefined)
+  );
+};
+
+/** À partir de ce stock (inclus), le produit porte le badge « Stock limité ». */
+export const LOW_STOCK = 5;
+
 export const formatPrice = (value: number) => `${Math.round(value).toLocaleString('fr-FR')} FCFA`;
 
 export const formatDate = (date: Date = new Date()) =>

@@ -95,19 +95,24 @@ try {
     const audio = path.join(TMP, 'son.wav');
     await run(PYTHON, [path.join(HERE, 'son.py'), cues, audio, voice]);
 
-    // 3. Version pleine qualité (WhatsApp, réseaux sociaux) et version légère du site, avec le son.
+    // 3. Versions avec le son, toutes faites depuis les images filmées (pas de double compression) :
+    //    WhatsApp et réseaux (1080 × 1920, moins de 16 Mo, limite d'envoi de certains téléphones) ;
+    //    site HD pour le lecteur plein écran (1080 × 1920, téléchargée seulement à l'ouverture) ;
+    //    aperçu léger de l'accueil (540 × 960, lu en boucle sans le son).
+    const encode = (out, crf, audioRate, scale) => run(ffmpeg, ['-y', '-i', silent, '-i', audio,
+      ...(scale ? ['-vf', `scale=${scale}:flags=lanczos,format=yuv420p`] : ['-pix_fmt', 'yuv420p']),
+      '-c:v', 'libx264', '-preset', 'slow', '-crf', String(crf), '-profile:v', 'high', '-c:a', 'aac', '-b:a', audioRate, '-shortest', '-movflags', '+faststart', out]);
     const full = path.join(HERE, 'bethanie-pub-9x16.mp4');
-    // Moins de 16 Mo : limite d'envoi de certains téléphones (WhatsApp).
-    await run(ffmpeg, ['-y', '-i', silent, '-i', audio, '-c:v', 'libx264', '-preset', 'slow', '-crf', '22', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
-      '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', full]);
-    const web = path.join(ROOT, 'public/videos/bethanie-presentation.mp4');
-    await run(ffmpeg, ['-y', '-i', full, '-vf', 'scale=720:1280:flags=lanczos,format=yuv420p', '-c:v', 'libx264', '-preset', 'slow', '-crf', '28',
-      '-profile:v', 'high', '-c:a', 'aac', '-b:a', '112k', '-movflags', '+faststart', web]);
+    const hd = path.join(ROOT, 'public/videos/bethanie-presentation-hd.mp4');
+    const preview = path.join(ROOT, 'public/videos/bethanie-presentation.mp4');
+    await encode(full, 22, '192k');
+    await encode(hd, 21, '160k');
+    await encode(preview, 27, '96k', '540:960');
     const poster = path.join(TMP, 'affiche.png');
     fs.writeFileSync(poster, await shot(Math.round(7.2 * 60000 / 128), 'png'));
-    await run(ffmpeg, ['-y', '-i', poster, '-vf', 'scale=360:640:flags=lanczos', '-quality', '82', path.join(ROOT, 'public/videos/bethanie-presentation.webp')]);
+    await run(ffmpeg, ['-y', '-i', poster, '-vf', 'scale=540:960:flags=lanczos', '-quality', '85', path.join(ROOT, 'public/videos/bethanie-presentation.webp')]);
     const size = (f) => `${(fs.statSync(f).size / 1048576).toFixed(1)} Mo`;
-    console.log(`vidéo : ${full} (${size(full)})\nsite : ${web} (${size(web)})`);
+    console.log(`WhatsApp : ${full} (${size(full)})\nsite HD : ${hd} (${size(hd)})\naperçu : ${preview} (${size(preview)})`);
   }
 } finally {
   if (errors.length) console.log('erreurs de la page :', errors.slice(0, 5));

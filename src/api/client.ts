@@ -7,6 +7,7 @@ import type {
   Order,
   Product,
   ProductDraft,
+  ProductPatch,
   Review,
   Shop,
   ShopDraft,
@@ -103,7 +104,7 @@ export const api = {
   createShop: (draft: ShopDraft) => request<{ user: Me }>('POST', '/shops', draft).then((r) => r.user),
   createProduct: (draft: ProductDraft) =>
     request<{ product: Product }>('POST', '/products', draft).then((r) => r.product),
-  updateProduct: (id: string, patch: { stock?: number; price?: number; title?: string; description?: string }) =>
+  updateProduct: (id: string, patch: ProductPatch) =>
     request<{ product: Product }>('PATCH', `/products/${encodeURIComponent(id)}`, patch).then((r) => r.product),
   deleteProduct: (id: string) => request<void>('DELETE', `/products/${encodeURIComponent(id)}`),
   sellerOrders: () => request<{ orders: Order[] }>('GET', '/seller/orders').then((r) => r.orders),

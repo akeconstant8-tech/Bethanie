@@ -1,5 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { AssistantProposal, NavigateParams, Order, OrderStatus, Product, ProductDraft, ScreenType, SellerShop, SellerTab, ShopDraft } from '../types';
+import {
+  AssistantProposal,
+  NavigateParams,
+  Order,
+  OrderStatus,
+  Product,
+  ProductDraft,
+  ProductPatch,
+  ScreenType,
+  SellerShop,
+  SellerTab,
+  ShopDraft,
+} from '../types';
 import { INITIAL_CATEGORIES } from '../data/mockData';
 import { errorMessage } from '../api/client';
 import { BottomNav } from '../components/BottomNav';
@@ -33,6 +45,7 @@ interface SellerScreenProps {
   onCreateShop: (draft: ShopDraft) => Promise<void>;
   onAddProduct: (draft: ProductDraft) => Promise<void>;
   onUpdateProduct: (id: string, patch: { stock?: number }) => Promise<void>;
+  onEditProduct: (id: string, patch: ProductPatch) => Promise<void>;
   onDeleteProduct: (id: string) => Promise<void>;
   onAdvanceOrder: (orderId: string) => Promise<void>;
   onNavigate: (screen: ScreenType, params?: NavigateParams) => void;
@@ -503,6 +516,128 @@ const NewProductForm: React.FC<{
   );
 };
 
+const ProductEditForm: React.FC<{ product: Product; onSubmit: (patch: ProductPatch) => Promise<void>; onCancel: () => void }> = ({
+  product,
+  onSubmit,
+  onCancel,
+}) => {
+  const { t } = useI18n();
+  const [draft, setDraft] = useState({
+    title: product.title,
+    description: product.description,
+    price: String(product.price),
+    originalPrice: product.originalPrice ? String(product.originalPrice) : '',
+    stock: String(product.stock),
+    condition: product.condition,
+    deliveryNote: product.deliveryNote ?? '',
+  });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const update = (key: keyof typeof draft) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      setDraft((current) => ({ ...current, [key]: event.target.value }));
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const price = Number(draft.price);
+    const stock = Number(draft.stock);
+    if (!draft.title.trim() || !draft.description.trim() || !Number.isInteger(price) || price < 100 ||
+        !Number.isInteger(stock) || stock < 0) return;
+
+    setBusy(true);
+    setError('');
+    try {
+      const originalPrice = Number(draft.originalPrice);
+      await onSubmit({
+        title: draft.title.trim(),
+        description: draft.description.trim(),
+        price,
+        originalPrice: originalPrice > price ? originalPrice : null,
+        stock,
+        condition: draft.condition,
+        deliveryNote: draft.deliveryNote.trim(),
+      });
+      onCancel();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <label className="block text-sm font-medium text-slate-700">
+        {t('seller.form.name')}
+        <input value={draft.title} onChange={update('title')} className={`${inputClass} mt-1.5`} required maxLength={120} />
+      </label>
+      <label className="block text-sm font-medium text-slate-700">
+        {t('seller.form.description')}
+        <textarea
+          value={draft.description}
+          onChange={update('description')}
+          rows={4}
+          className={`${inputClass} mt-1.5`}
+          required
+          minLength={10}
+          maxLength={3000}
+        />
+      </label>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-sm font-medium text-slate-700">
+          {t('seller.form.price')}
+          <input type="number" min="100" step="1" inputMode="numeric" value={draft.price} onChange={update('price')} className={`${inputClass} mt-1.5`} required />
+        </label>
+        <label className="block text-sm font-medium text-slate-700">
+          {t('common.stock')}
+          <input type="number" min="0" step="1" inputMode="numeric" value={draft.stock} onChange={update('stock')} className={`${inputClass} mt-1.5`} required />
+        </label>
+      </div>
+      <label className="block text-sm font-medium text-slate-700">
+        {t('seller.form.originalPrice')}
+        <input
+          type="number"
+          min="100"
+          step="1"
+          inputMode="numeric"
+          value={draft.originalPrice}
+          onChange={update('originalPrice')}
+          className={`${inputClass} mt-1.5`}
+          placeholder={t('seller.form.pricePlaceholder')}
+        />
+        <span className="block text-xs font-normal text-slate-500 mt-1">{t('seller.form.noPromotion')}</span>
+      </label>
+      <label className="block text-sm font-medium text-slate-700">
+        {t('seller.form.condition')}
+        <select value={draft.condition} onChange={update('condition')} className={`${inputClass} mt-1.5`}>
+          <option value="neuf">{t('product.condition.neuf')}</option>
+          <option value="occasion">{t('product.condition.occasion')}</option>
+        </select>
+      </label>
+      <label className="block text-sm font-medium text-slate-700">
+        {t('seller.form.deliveryNote')}
+        <input
+          value={draft.deliveryNote}
+          onChange={update('deliveryNote')}
+          className={`${inputClass} mt-1.5`}
+          placeholder={t('seller.form.deliveryNotePlaceholder')}
+          maxLength={200}
+        />
+      </label>
+      {error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5" role="alert">{error}</p>}
+      <div className="flex gap-3 pt-2">
+        <button type="button" onClick={onCancel} className={`${btnOutline} h-11 px-5 flex-1`}>
+          {t('common.close')}
+        </button>
+        <button type="submit" disabled={busy} className={`${btnPrimary} h-11 px-5 flex-1`}>
+          {busy ? <i className="fa-solid fa-spinner animate-spin" aria-label={t('common.loading')}></i> : t('common.save')}
+        </button>
+      </div>
+    </form>
+  );
+};
+
 /* ------------------------------------------------------------------ */
 /* Espace vendeur                                                      */
 /* ------------------------------------------------------------------ */
@@ -525,6 +660,7 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
   onCreateShop,
   onAddProduct,
   onUpdateProduct,
+  onEditProduct,
   onDeleteProduct,
   onAdvanceOrder,
   onNavigate,
@@ -534,6 +670,7 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
   const { t, tn, categoryName, statusLabel, paymentLabel } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [assistantDraft, setAssistantDraft] = useState<Extract<AssistantProposal, { kind: 'product' }> | null>(null);
   const setTab = (sellerTab: SellerTab) => onNavigate('seller', { sellerTab });
 
@@ -770,6 +907,13 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
                           <i className="fa-solid fa-plus text-[10px]"></i>
                         </button>
                       </div>
+                      <button
+                        onClick={() => setEditingProduct(p)}
+                        className="w-9 h-9 rounded-full text-slate-500 hover:text-brand-900 hover:bg-brand-50 cursor-pointer"
+                        aria-label={t('seller.editProduct', { title: p.title })}
+                      >
+                        <i className="fa-regular fa-pen-to-square"></i>
+                      </button>
                       <button
                         onClick={() => {
                           if (window.confirm(t('seller.confirmDelete', { title: p.title }))) onDeleteProduct(p.id);
@@ -1040,6 +1184,20 @@ export const SellerScreen: React.FC<SellerScreenProps> = ({
           ))}
         </ul>
       </BottomSheet>
+      {editingProduct && (
+        <BottomSheet
+          open
+          title={t('seller.editTitle')}
+          onClose={() => setEditingProduct(null)}
+        >
+          <ProductEditForm
+            key={editingProduct.id}
+            product={editingProduct}
+            onSubmit={(patch) => onEditProduct(editingProduct.id, patch)}
+            onCancel={() => setEditingProduct(null)}
+          />
+        </BottomSheet>
+      )}
     </div>
   );
 };

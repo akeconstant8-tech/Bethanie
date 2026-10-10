@@ -363,8 +363,8 @@ Un seul code par commande, calculé sur le sous-total :
 
 `Confirmée → En préparation → Expédiée → En livraison → Livrée`
 
-- Peuvent faire avancer une commande : le **vendeur** dont un article figure dans la commande, un
-  **administrateur**, ou le **client lui-même en mode démonstration** uniquement.
+- Peuvent faire avancer une commande : le **vendeur** dont un article figure dans la commande ou un
+  **administrateur**. Les commandes de démonstration historiques ne sont pas accessibles aux clients.
 - Une commande dont le paiement est **en attente** ne peut pas avancer.
 - Un livreur est attribué au passage à « En livraison ».
 - Une commande réglée à la livraison passe en « payée » lorsqu’elle est livrée.
@@ -594,7 +594,7 @@ Chaque lot est accepté lorsque ses scénarios passent sur l’environnement de 
 | R27 | Mobile : Accueil → une catégorie → flèche retour → onglet Catégories | Le catalogue arrive de la droite, le retour arrive de la gauche, l’onglet passe en fondu ; la pastille de la barre du bas glisse jusqu’à l’onglet | ✅ |
 | R28 | Toucher « + » sur une carte produit (mobile et ordinateur) | La photo vole jusqu’au panier (barre du bas ou en-tête), qui rebondit ; le nombre d’articles augmente | ✅ |
 | R29 | Ordinateur : passer la souris sur une carte produit | La carte s’incline légèrement vers le pointeur avec un reflet ; elle se redresse quand la souris sort | ✅ |
-| R30 | Payer une commande (compte de démonstration) | Coche dessinée, confettis, puis ouverture du suivi de la commande | ✅ |
+| R30 | Ajouter ou commander un produit marqué « Démo » | Achat bloqué dans l’interface et refusé par l’API ; aucun stock, commande ou paiement simulé | ✅ |
 | R31 | Accueil au chargement | Photo de la bannière qui se pose, titre mot par mot, soulignement doré ; aucun défilement horizontal à 360, 768, 1024 et 1440 px | ✅ |
 | R32 | Profil → Animations → « Toujours activées » sur un PC Windows aux effets d’animation coupés | Les animations jouent ; « Réduites » les coupe ; le choix est gardé | ✅ |
 | R33 | Toucher un bouton principal ; ajouter un favori | Onde au point touché ; éclats autour du cœur | ✅ |
