@@ -2,13 +2,14 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Béthanie — vidéo de présentation</title>
 <link rel="icon" href="data:," />
 <!--
-  Vidéo de présentation de Béthanie (motion design), format vertical 1080 × 1920 (WhatsApp, TikTok, Reels).
-  Ouvrir avec le petit serveur de rendu.mjs (polices et images du site) : la vidéo se joue en boucle.
-  rendu.mjs fige l'animation image par image (window.__seek) et fabrique le fichier MP4.
+  Vidéo de présentation de Béthanie (motion design), verticale 1080 × 1920, 30 s, calée sur la musique (128 battements
+  par minute). Les écrans du téléphone sont de vraies captures de l'application (dossier ecrans/).
+  Tout le contenu est construit par animation.js ; rendu.mjs fige l'animation image par image et fabrique les MP4.
 -->
 <link rel="stylesheet" href="/public/vendor/fontawesome/css/all.min.css" />
 <style>
@@ -18,456 +19,88 @@
   @font-face { font-family: 'Poppins'; font-weight: 700; src: url('/public/fonts/poppins-700-latin.woff2') format('woff2'); }
   @font-face { font-family: 'Cinzel'; font-weight: 700; src: url('/public/fonts/cinzel-700-latin.woff2') format('woff2'); }
 
-  :root {
-    --brand: #0f5132; --brand-dark: #0a3622; --brand-700: #146c43; --gold: #e5a93c; --gold-light: #f4cd6e;
-    --cream: #f8f5ef; --ink: #10241a;
-  }
+  :root { --brand: #0f5132; --brand-dark: #0a3622; --gold: #e5a93c; --gold-light: #f4cd6e; --ink: #10241a; --cream: #f8f5ef; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; background: #111; overflow: hidden; }
-  body { font-family: 'Poppins', sans-serif; display: flex; align-items: center; justify-content: center; }
-  /* Scène de 1080 × 1920 ; en aperçu, réduite pour tenir dans la fenêtre. */
-  #stage { position: relative; width: 1080px; height: 1920px; overflow: hidden; background: var(--brand-dark); transform-origin: center; flex: none; }
-  .scene { position: absolute; inset: 0; }
-  .bg { position: absolute; inset: 0; }
-  .green { background: radial-gradient(120% 80% at 50% 35%, #146c43 0%, #0f5132 45%, #0a3622 100%); }
-  .cream { background: radial-gradient(110% 70% at 50% 30%, #fffdf8 0%, #f8f5ef 55%, #efe7d8 100%); }
-  .kente {
-    position: absolute; inset: 0; opacity: 0.07;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='112' height='112' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%23E5A93C' stroke-width='2'%3E%3Cpath d='M28 4 52 28 28 52 4 28Z'/%3E%3Cpath d='M28 15 41 28 28 41 15 28Z'/%3E%3Cpath d='M0 0 8 8M56 0 48 8M0 56 8 48M56 56 48 48'/%3E%3C/g%3E%3Ccircle cx='28' cy='28' r='3.5' fill='%23E5A93C'/%3E%3C/svg%3E");
-    background-size: 112px 112px;
-  }
+  html, body { width: 100%; height: 100%; background: #0b0b0b; overflow: hidden; }
+  body { font-family: 'Poppins', sans-serif; display: flex; align-items: center; justify-content: center; -webkit-font-smoothing: antialiased; }
+  #stage { position: relative; width: 1080px; height: 1920px; overflow: hidden; background: #06261a; transform-origin: center; flex: none; }
+  .layer { position: absolute; inset: 0; }
   .abs { position: absolute; }
-  .center-x { left: 0; right: 0; text-align: center; }
-  .o0 { opacity: 0; }
+
+  /* Fonds */
+  .bg-green { background: radial-gradient(130% 90% at 50% 28%, #17784a 0%, #0f5132 42%, #072a1b 100%); }
+  .bg-cream { background: radial-gradient(120% 80% at 50% 22%, #fffdf8 0%, #f6f0e4 60%, #eadfca 100%); }
+  .kente { position: absolute; inset: -112px; opacity: 0.055; background-size: 112px 112px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='112' height='112' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%23E5A93C' stroke-width='2'%3E%3Cpath d='M28 4 52 28 28 52 4 28Z'/%3E%3Cpath d='M28 15 41 28 28 41 15 28Z'/%3E%3Cpath d='M0 0 8 8M56 0 48 8M0 56 8 48M56 56 48 48'/%3E%3C/g%3E%3Ccircle cx='28' cy='28' r='3.5' fill='%23E5A93C'/%3E%3C/svg%3E"); }
+  .blob { position: absolute; width: 1000px; height: 1000px; border-radius: 50%; opacity: 0.32;
+    background: radial-gradient(circle, rgba(244, 205, 110, 0.6) 0%, rgba(229, 169, 60, 0) 62%); }
+  .grain { position: absolute; inset: 0; opacity: 0.06; mix-blend-mode: overlay; pointer-events: none; }
+  .vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(120% 90% at 50% 45%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.28) 100%); }
 
   /* Textes */
-  /* Chaque lettre porte son propre dégradé doré (elle s'anime séparément). */
-  .brand-name { font-family: 'Cinzel', serif; font-weight: 700; letter-spacing: 0.08em; color: transparent; }
-  .brand-name span { display: inline-block; background: linear-gradient(180deg, #f8dc8c 0%, #e5a93c 60%, #c88a22 100%);
+  .brand-name { font-family: 'Cinzel', serif; font-weight: 700; letter-spacing: 0.08em; text-align: center; left: 0; right: 0; }
+  .brand-name .ch { display: inline-block; background: linear-gradient(180deg, #fbe3a0 0%, #e5a93c 58%, #c0841c 100%);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .slogan { font-weight: 600; color: rgba(255,255,255,0.88); letter-spacing: 0.02em; }
-  .title { font-weight: 700; line-height: 1.08; letter-spacing: -0.01em; }
-  .title .w { display: inline-block; }
-  .title .line { display: block; }
-  .gold-txt { color: var(--gold); }
-  .hl { position: relative; display: inline-block; }
-  .hl .bar { position: absolute; left: 0; right: 0; bottom: 0.02em; height: 0.12em; border-radius: 99px; background: linear-gradient(90deg, #f4cd6e, #e5a93c); transform-origin: left; }
-  .pill { display: inline-flex; align-items: center; gap: 18px; border-radius: 999px; font-weight: 700; letter-spacing: 0.06em; }
+  .mask { display: block; overflow: hidden; padding: 0 0.06em 0.1em; }
+  .mask > .mi { display: inline-block; will-change: transform; }
+  .gold { color: var(--gold); }
+  .cap { position: absolute; left: 0; right: 0; top: 150px; text-align: center; }
+  .cap .pill { display: inline-flex; align-items: center; gap: 14px; padding: 14px 30px; border-radius: 999px; font-weight: 700; font-size: 29px; letter-spacing: 0.14em; }
+  .cap h2 { font-weight: 700; font-size: 100px; line-height: 1.02; letter-spacing: -0.025em; margin-top: 20px; }
+  .on-green .pill { background: rgba(244, 205, 110, 0.14); color: var(--gold-light); border: 2px solid rgba(244, 205, 110, 0.45); }
+  .on-green h2 { color: #fff; }
+  .on-cream .pill { background: var(--brand); color: var(--gold-light); }
+  .on-cream h2 { color: var(--brand); }
+  .underline { position: absolute; left: 4%; right: 4%; bottom: 0.08em; height: 0.11em; border-radius: 99px; background: linear-gradient(90deg, #f4cd6e, #e5a93c); transform-origin: left; }
 
-  /* Drapeaux dessinés (les émojis drapeaux ne s'affichent pas partout) */
-  .flag { display: inline-flex; width: 66px; height: 44px; border-radius: 8px; overflow: hidden; box-shadow: 0 0 0 2px rgba(0,0,0,0.08); }
+  /* Téléphone */
+  .phone-wrap { position: absolute; left: 274px; top: 560px; width: 532px; height: 1162px; transform-origin: 50% 40%; }
+  .phone { position: absolute; inset: 0; border-radius: 82px; padding: 16px;
+    background: linear-gradient(150deg, #4a505a 0%, #1b1e23 30%, #0b0d10 100%);
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.10), inset 0 0 0 6px #0b0d10, 0 80px 140px -50px rgba(0, 0, 0, 0.75), 0 30px 60px -30px rgba(0, 0, 0, 0.55); }
+  .btn-side { position: absolute; width: 7px; border-radius: 4px; background: linear-gradient(90deg, #2a2e35, #4a505a); }
+  .screen { position: relative; width: 500px; height: 1130px; border-radius: 66px; overflow: hidden; background: var(--cream); }
+  .sbar { position: absolute; left: 0; right: 0; top: 0; height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 6px 44px 0; font-size: 21px; font-weight: 600; z-index: 6; }
+  .sbar .ic { display: flex; gap: 10px; font-size: 18px; }
+  .island { position: absolute; top: 11px; left: 50%; width: 136px; height: 38px; margin-left: -68px; border-radius: 20px; background: #000; z-index: 7; }
+  .scr { position: absolute; left: 0; top: 48px; width: 500px; height: 1082px; overflow: hidden; background: var(--cream); }
+  .scr > .page { position: absolute; inset: 0; overflow: hidden; background: var(--cream); }
+  .scr img { display: block; width: 500px; }
+  .glass { position: absolute; inset: 0; border-radius: 66px; pointer-events: none; z-index: 8;
+    background: linear-gradient(125deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0) 32%); }
+  .tap { position: absolute; width: 96px; height: 96px; margin: -48px 0 0 -48px; border-radius: 50%; background: rgba(255, 255, 255, 0.55); border: 3px solid rgba(15, 81, 50, 0.35); z-index: 9; }
+  .tap-dot { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: rgba(15, 81, 50, 0.55); z-index: 9; }
+
+  /* Éléments flottants */
+  .float-card { position: absolute; width: 230px; background: #fff; border-radius: 30px; padding: 14px 14px 18px; text-align: center;
+    box-shadow: 0 30px 60px -24px rgba(0, 0, 0, 0.55); }
+  .float-card img { width: 170px; height: 170px; object-fit: contain; mix-blend-mode: multiply; }
+  .float-card b { display: block; font-size: 28px; font-weight: 600; color: var(--ink); margin-top: 2px; }
+  .badge-pay { position: absolute; width: 132px; height: 132px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 40px; box-shadow: 0 24px 50px -18px rgba(0, 0, 0, 0.55), inset 0 0 0 5px rgba(255, 255, 255, 0.85); }
+  .callout { position: absolute; display: flex; align-items: center; gap: 22px; background: rgba(255, 255, 255, 0.97); border-radius: 30px; padding: 22px 30px 22px 22px;
+    box-shadow: 0 30px 60px -22px rgba(0, 0, 0, 0.55); }
+  .callout .ico { width: 78px; height: 78px; border-radius: 22px; display: flex; align-items: center; justify-content: center; font-size: 34px; flex: none; }
+  .callout b { display: block; font-size: 31px; font-weight: 700; color: var(--ink); line-height: 1.15; }
+  .callout small { display: block; font-size: 24px; color: #5b6b62; margin-top: 4px; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; height: 560px; background: #fff; border-radius: 44px 44px 0 0; z-index: 4;
+    display: flex; flex-direction: column; align-items: center; padding-top: 60px; box-shadow: 0 -20px 50px -20px rgba(0, 0, 0, 0.35); }
+  .sheet b { font-size: 40px; font-weight: 700; color: var(--ink); margin-top: 26px; }
+  .sheet strong { font-size: 54px; font-weight: 700; color: var(--brand); margin-top: 6px; }
+  .sheet small { font-size: 24px; color: #5b6b62; margin-top: 10px; }
+  .dim { position: absolute; inset: 0; background: rgba(10, 30, 20, 0.45); z-index: 3; }
+  .confetti { position: absolute; width: 16px; height: 24px; border-radius: 4px; opacity: 0; }
+  .particle { position: absolute; width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle, #f8dc8c 0%, rgba(229, 169, 60, 0) 70%); }
+  .flag { display: inline-flex; width: 60px; height: 40px; border-radius: 8px; overflow: hidden; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1); vertical-align: middle; }
   .flag i { flex: 1; }
-  .country { display: inline-flex; align-items: center; gap: 22px; background: #fff; border-radius: 999px; padding: 22px 40px 22px 24px;
-    font-size: 42px; font-weight: 600; color: var(--ink); box-shadow: 0 18px 40px -18px rgba(16,36,26,0.35); }
-
-  /* Catégories */
-  .tile { position: absolute; width: 430px; height: 280px; background: #fff; border-radius: 40px; box-shadow: 0 20px 44px -22px rgba(16,36,26,0.35);
-    display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 22px; }
-  .tile img { position: absolute; top: 10px; width: 200px; height: 200px; object-fit: contain; mix-blend-mode: multiply; }
-  .tile b { font-size: 38px; font-weight: 600; color: var(--ink); }
-
-  /* Carte produit */
-  .card { position: absolute; left: 180px; top: 640px; width: 720px; background: #fff; border-radius: 48px; overflow: hidden;
-    box-shadow: 0 40px 80px -30px rgba(0,0,0,0.55); }
-  .card .photo { width: 720px; height: 560px; background: #f3ede2; overflow: hidden; }
-  .card .photo img { width: 100%; height: 100%; object-fit: cover; }
-  .card .body { padding: 34px 40px 40px; }
-  .card h3 { font-size: 44px; font-weight: 500; color: var(--ink); }
-  .card .price { font-size: 60px; font-weight: 700; color: var(--brand); margin-top: 10px; }
-  .card .stars { font-size: 32px; color: #64748b; margin-top: 4px; }
-  .card .stars i { color: var(--gold); }
-  .badge { position: absolute; left: 30px; top: 30px; background: #dc2626; color: #fff; font-size: 30px; font-weight: 700; letter-spacing: 0.08em; padding: 10px 20px; border-radius: 14px; }
-  .addbtn { position: absolute; right: 40px; bottom: 40px; width: 130px; height: 130px; border-radius: 34px; background: var(--brand); color: #fff;
-    display: flex; align-items: center; justify-content: center; font-size: 54px; }
-  .addbtn .ok { position: absolute; inset: 0; border-radius: 34px; background: #059669; display: flex; align-items: center; justify-content: center; }
-  .cart { position: absolute; width: 150px; height: 150px; border-radius: 50%; background: rgba(255,255,255,0.14); border: 3px solid rgba(255,255,255,0.35);
-    color: #fff; display: flex; align-items: center; justify-content: center; font-size: 64px; }
-  .cart .count { position: absolute; top: -6px; right: -6px; width: 62px; height: 62px; border-radius: 50%; background: var(--gold); color: var(--brand-dark);
-    font-size: 34px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
-  .toast { position: absolute; left: 140px; right: 140px; top: 1570px; background: #fff; color: var(--ink); border-radius: 36px; padding: 30px 38px;
-    font-size: 40px; font-weight: 600; display: flex; align-items: center; gap: 22px; box-shadow: 0 30px 60px -24px rgba(0,0,0,0.5); }
-  .toast i { color: #059669; font-size: 48px; }
-
-  /* Paiement */
-  .pay { position: absolute; left: 110px; width: 860px; height: 128px; background: #fff; border-radius: 36px; display: flex; align-items: center; gap: 30px;
-    padding: 0 26px; font-size: 44px; font-weight: 600; color: var(--ink); box-shadow: 0 16px 36px -22px rgba(16,36,26,0.4); }
-  .pay .logo { width: 86px; height: 86px; border-radius: 24px; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 700; flex: none; }
-  .pay .sel { position: absolute; inset: -8px; border-radius: 44px; border: 7px solid var(--brand); }
-  .pay .tick { position: absolute; right: 30px; width: 70px; height: 70px; border-radius: 50%; background: var(--brand); color: #fff; display: flex;
-    align-items: center; justify-content: center; font-size: 34px; }
-  .secure { position: absolute; left: 0; right: 0; top: 1540px; text-align: center; }
-  .secure span { display: inline-flex; align-items: center; gap: 20px; background: var(--brand); color: #fff; font-size: 42px; font-weight: 600;
-    padding: 26px 46px; border-radius: 999px; box-shadow: 0 24px 50px -22px rgba(15,81,50,0.7); }
-  .secure i { color: var(--gold-light); }
-
-  /* Livraison */
-  .stop { position: absolute; width: 170px; height: 170px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 70px; }
-  .track { position: absolute; left: 260px; width: 560px; top: 1013px; height: 14px; border-radius: 99px; background: rgba(255,255,255,0.18); }
-  .track .fill { position: absolute; inset: 0; border-radius: 99px; background: linear-gradient(90deg, #f4cd6e, #e5a93c); transform-origin: left; }
-  .truck { position: absolute; left: 195px; top: 950px; width: 140px; height: 140px; border-radius: 50%; background: #fff; color: var(--brand);
-    display: flex; align-items: center; justify-content: center; font-size: 60px; box-shadow: 0 20px 40px -16px rgba(0,0,0,0.5); }
-  .step { position: absolute; top: 1150px; width: 300px; margin-left: -150px; text-align: center; color: #fff; font-size: 36px; font-weight: 600; }
-  .step .dot { width: 64px; height: 64px; margin: 0 auto 16px; border-radius: 50%; background: rgba(255,255,255,0.18); position: relative; }
-  .step .dot i { position: absolute; inset: 0; border-radius: 50%; background: var(--gold); color: var(--brand-dark); display: flex; align-items: center; justify-content: center; font-size: 30px; }
-  .spark { position: absolute; width: 18px; height: 18px; margin: -9px; border-radius: 50%; background: var(--gold-light); }
-
-  /* Vendeurs */
-  .photo-card { position: absolute; left: 120px; top: 700px; width: 840px; height: 500px; border-radius: 44px; overflow: hidden;
-    box-shadow: 0 40px 70px -30px rgba(16,36,26,0.55); border: 8px solid #fff; }
-  .photo-card img { width: 100%; height: 100%; object-fit: cover; }
-  .cta { display: inline-flex; flex-direction: column; align-items: center; gap: 6px; padding: 34px 70px; border-radius: 999px; position: relative; overflow: hidden;
-    background: linear-gradient(180deg, #f4cd6e 0%, #e5a93c 100%); color: var(--brand-dark); box-shadow: 0 30px 60px -24px rgba(229,169,60,0.75); }
-  .cta small { font-size: 36px; font-weight: 600; }
-  .cta strong { font-size: 58px; font-weight: 700; letter-spacing: -0.01em; }
-  .cta .sheen { position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.65), transparent); transform: translateX(-150%) skewX(-20deg); }
-  .particle { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle, #f4cd6e 0%, rgba(229,169,60,0) 70%); }
+  .cta { display: inline-flex; align-items: center; gap: 22px; padding: 30px 60px; border-radius: 999px; position: relative; overflow: hidden;
+    background: linear-gradient(180deg, #f8d77f 0%, #e5a93c 100%); color: var(--brand-dark); font-size: 52px; font-weight: 700;
+    box-shadow: 0 34px 70px -26px rgba(229, 169, 60, 0.85); }
+  .sheen { position: absolute; top: 0; bottom: 0; left: 0; width: 38%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); }
 </style>
 </head>
 <body>
-<div id="stage">
-
-  <!-- A. Ouverture : le logo se dessine -->
-  <section class="scene" id="A">
-    <div class="bg green"></div><div class="kente" id="A-kente"></div>
-    <div class="abs" id="A-glow" style="left:190px;top:410px;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,rgba(244,205,110,0.55),rgba(229,169,60,0) 65%)"></div>
-    <div id="A-particles"></div>
-    <svg id="A-logo" class="abs" style="left:350px;top:520px;width:380px;height:380px" viewBox="0 0 100 100"></svg>
-    <div class="abs center-x brand-name" id="A-name" style="top:960px;font-size:128px">BÉTHANIE</div>
-    <div class="abs center-x slogan o0" id="A-slogan" style="top:1150px;font-size:46px">Achetez • Vendez • Bénissez</div>
-    <div class="abs" id="A-line" style="left:400px;top:1250px;width:280px;height:6px;border-radius:9px;background:linear-gradient(90deg,#f4cd6e,#e5a93c);transform:scaleX(0)"></div>
-  </section>
-
-  <!-- B. La promesse -->
-  <section class="scene" id="B">
-    <div class="bg cream" id="B-bg"></div><div class="kente" style="opacity:0.05"></div>
-    <div class="abs center-x" style="top:470px"><span class="pill o0" id="B-pill" style="background:var(--brand);color:var(--gold-light);font-size:34px;padding:20px 40px"><i class="fa-solid fa-store"></i>MARKETPLACE AFRICAINE</span></div>
-    <h1 class="abs center-x title" id="B-title" style="top:620px;font-size:118px;color:var(--brand)">
-      <span class="line"><span class="w">Le</span> <span class="w">marché</span></span>
-      <span class="line"><span class="w hl gold-txt">africain<span class="bar" id="B-bar" style="transform:scaleX(0)"></span></span></span>
-      <span class="line"><span class="w">dans</span> <span class="w">votre</span> <span class="w">poche</span></span>
-    </h1>
-    <p class="abs center-x o0" id="B-sub" style="top:1060px;font-size:44px;color:#475569;line-height:1.4;padding:0 90px">Des vendeurs vérifiés, des prix en FCFA,<br />livrés près de chez vous</p>
-    <div class="abs center-x" style="top:1300px;display:flex;justify-content:center;gap:30px">
-      <span class="country o0" id="B-ci"><span class="flag"><i style="background:#F77F00"></i><i style="background:#fff"></i><i style="background:#009E60"></i></span>Côte d’Ivoire</span>
-      <span class="country o0" id="B-sn"><span class="flag"><i style="background:#00853F"></i><i style="background:#FDEF42"></i><i style="background:#E31B23"></i></span>Sénégal</span>
-    </div>
-  </section>
-
-  <!-- C. Les catégories -->
-  <section class="scene" id="C">
-    <div class="bg cream" id="C-bg"></div><div class="kente" style="opacity:0.05"></div>
-    <h2 class="abs center-x title" id="C-title" style="top:250px;font-size:92px;color:var(--brand)">
-      <span class="w">Tout</span> <span class="w">ce</span> <span class="w">qu’il</span> <span class="w">vous</span> <span class="w gold-txt">faut</span>
-    </h2>
-    <p class="abs center-x o0" id="C-sub" style="top:375px;font-size:40px;color:#475569">8 catégories pour toute la famille</p>
-    <div id="C-tiles"></div>
-  </section>
-
-  <!-- D. Commander en un geste -->
-  <section class="scene" id="D">
-    <div class="bg green" id="D-bg"></div><div class="kente"></div>
-    <h2 class="abs title" id="D-title" style="left:90px;top:300px;font-size:96px;color:#fff">
-      <span class="line"><span class="w">Commandez</span></span>
-      <span class="line"><span class="w">en</span> <span class="w">un</span> <span class="w gold-txt">geste</span></span>
-    </h2>
-    <div class="cart o0" id="D-cart" style="left:840px;top:320px"><i class="fa-solid fa-cart-shopping"></i><span class="count o0" id="D-count">1</span></div>
-    <div class="card o0" id="D-card">
-      <div class="photo"><img id="D-photo" src="/public/images/leather_handbag_1790991457488.jpg" alt="" /></div>
-      <span class="badge o0" id="D-badge">PROMOTION</span>
-      <div class="body">
-        <h3>Sac à main en cuir véritable</h3>
-        <p class="price">25 000 FCFA</p>
-        <p class="stars"><i class="fa-solid fa-star"></i> 4,8</p>
-      </div>
-      <div class="addbtn" id="D-add"><i class="fa-solid fa-plus" id="D-plus"></i><span class="ok o0" id="D-ok"><i class="fa-solid fa-check"></i></span></div>
-    </div>
-    <div class="abs" id="D-flyX" style="left:470px;top:850px;width:140px;height:140px"><div id="D-flyY" style="width:100%;height:100%"><img id="D-fly" class="o0" src="/public/images/leather_handbag_1790991457488.jpg" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;border:5px solid #fff;box-shadow:0 14px 30px -10px rgba(0,0,0,0.5)" /></div></div>
-    <i class="fa-solid fa-hand-pointer abs o0" id="D-hand" style="left:752px;top:1392px;font-size:120px;color:#fff;filter:drop-shadow(0 10px 18px rgba(0,0,0,0.45))"></i>
-    <div class="toast o0" id="D-toast"><i class="fa-solid fa-circle-check"></i>Ajouté au panier</div>
-  </section>
-
-  <!-- E. Payer comme on veut -->
-  <section class="scene" id="E">
-    <div class="bg cream" id="E-bg"></div><div class="kente" style="opacity:0.05"></div>
-    <h2 class="abs title" id="E-title" style="left:110px;top:270px;font-size:96px;color:var(--brand)">
-      <span class="line"><span class="w">Payez</span> <span class="w">comme</span></span>
-      <span class="line"><span class="w gold-txt">vous</span> <span class="w gold-txt">voulez</span></span>
-    </h2>
-    <div id="E-list"></div>
-    <div class="secure o0" id="E-secure"><span><i class="fa-solid fa-lock"></i>Paiement sécurisé</span></div>
-  </section>
-
-  <!-- F. Livraison -->
-  <section class="scene" id="F">
-    <div class="bg green" id="F-bg"></div><div class="kente"></div>
-    <h2 class="abs center-x title" id="F-title" style="top:300px;font-size:110px;color:#fff">
-      <span class="w">Livré</span> <span class="w gold-txt">chez</span> <span class="w gold-txt">vous</span>
-    </h2>
-    <p class="abs center-x o0" id="F-sub" style="top:450px;font-size:44px;color:rgba(255,255,255,0.85)">Suivez votre commande en temps réel</p>
-    <div class="stop o0" id="F-shop" style="left:90px;top:935px;background:var(--gold);color:var(--brand-dark)"><i class="fa-solid fa-store"></i></div>
-    <div class="stop o0" id="F-home" style="left:820px;top:935px;background:#fff;color:var(--brand)"><i class="fa-solid fa-house"></i></div>
-    <div class="track o0" id="F-track"><div class="fill" id="F-fill" style="transform:scaleX(0)"></div></div>
-    <div id="F-sparks"></div>
-    <div class="truck o0" id="F-truck"><i class="fa-solid fa-truck-fast" id="F-truck-i"></i></div>
-    <div class="step o0" id="F-s1" style="left:175px"><div class="dot"><i class="fa-solid fa-check o0"></i></div>Confirmée</div>
-    <div class="step o0" id="F-s2" style="left:540px"><div class="dot"><i class="fa-solid fa-check o0"></i></div>En route</div>
-    <div class="step o0" id="F-s3" style="left:905px"><div class="dot"><i class="fa-solid fa-check o0"></i></div>Livrée</div>
-    <div class="abs center-x" style="top:1430px"><span class="pill o0" id="F-express" style="background:var(--gold);color:var(--brand-dark);font-size:40px;padding:24px 46px;letter-spacing:0"><i class="fa-solid fa-truck-fast"></i>Express à Abidjan</span></div>
-  </section>
-
-  <!-- G. Vendeurs -->
-  <section class="scene" id="G">
-    <div class="bg cream" id="G-bg"></div><div class="kente" style="opacity:0.05"></div>
-    <div class="abs center-x" style="top:300px"><span class="pill o0" id="G-pill" style="background:var(--gold);color:var(--brand-dark);font-size:34px;padding:20px 40px"><i class="fa-solid fa-store"></i>VOUS ÊTES VENDEUR ?</span></div>
-    <h2 class="abs center-x title" id="G-title" style="top:420px;font-size:96px;color:var(--brand)">
-      <span class="line"><span class="w">Ouvrez</span> <span class="w">votre</span></span>
-      <span class="line"><span class="w gold-txt">boutique</span> <span class="w">en</span> <span class="w">ligne</span></span>
-    </h2>
-    <div class="photo-card o0" id="G-card"><img id="G-img" src="/public/images/artisan_woodworker_1790991510122.jpg" alt="" /></div>
-    <div class="abs center-x o0" id="G-pct" style="top:1250px">
-      <div style="font-size:40px;font-weight:600;color:#475569">Commission unique</div>
-      <div style="font-size:200px;font-weight:700;line-height:1;color:var(--gold);letter-spacing:-0.02em">5 %</div>
-    </div>
-  </section>
-
-  <!-- H. Fin : appel à l'action -->
-  <section class="scene" id="H">
-    <div class="bg green" id="H-bg"></div><div class="kente"></div>
-    <div class="abs" id="H-glow" style="left:240px;top:330px;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(244,205,110,0.45),rgba(229,169,60,0) 65%)"></div>
-    <svg id="H-logo" class="abs" style="left:385px;top:420px;width:310px;height:310px" viewBox="0 0 100 100"></svg>
-    <div class="abs center-x brand-name" id="H-name" style="top:770px;font-size:118px">BÉTHANIE</div>
-    <div class="abs center-x slogan o0" id="H-slogan" style="top:950px;font-size:44px">Achetez • Vendez • Bénissez</div>
-    <div class="abs center-x" style="top:1130px"><span class="cta o0" id="H-cta"><small>Commandez sur</small><strong>bethanie.vercel.app</strong><span class="sheen" id="H-sheen"></span></span></div>
-    <div class="abs center-x o0" id="H-flags" style="top:1430px;display:flex;justify-content:center;gap:26px;align-items:center;font-size:38px;font-weight:600;color:rgba(255,255,255,0.85)">
-      <span class="flag"><i style="background:#F77F00"></i><i style="background:#fff"></i><i style="background:#009E60"></i></span>Côte d’Ivoire
-      <span style="color:var(--gold)">•</span>
-      <span class="flag"><i style="background:#00853F"></i><i style="background:#FDEF42"></i><i style="background:#E31B23"></i></span>Sénégal
-    </div>
-  </section>
-</div>
-
-<script>
-/* ------------------------------------------------------------------ */
-/* Outils                                                              */
-/* ------------------------------------------------------------------ */
-const $ = (s) => document.querySelector(s);
-const $$ = (s) => [...document.querySelectorAll(s)];
-const OUT = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
-const SPRING = 'cubic-bezier(0.34, 1.56, 0.64, 1)';
-const IN = 'cubic-bezier(0.5, 0, 0.75, 0)';
-const TOTAL = 35000;
-/** Animation sur la ligne de temps commune : start et duration en millisecondes depuis le début de la vidéo. */
-const at = (el, frames, start, duration, easing = OUT, fill = 'both', extra = {}) =>
-  el && el.animate(frames, { delay: start, duration, easing, fill, ...extra });
-/** Entrée (visible ensuite) et sortie (fill « forwards » : n'agit qu'à partir de son début). */
-const enter = (el, start, duration = 600, from = 'translateY(60px)', easing = OUT) =>
-  at(el, [{ opacity: 0, transform: from }, { opacity: 1, transform: 'none' }], start, duration, easing);
-const leave = (el, start, duration = 400, to = 'translateY(-50px)') =>
-  at(el, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: to }], start, duration, IN, 'forwards');
-const pop = (el, start, duration = 550) =>
-  at(el, [{ opacity: 0, transform: 'scale(0.5)' }, { opacity: 1, transform: 'scale(1)' }], start, duration, SPRING);
-/** Une scène apparaît par un disque qui s'agrandit depuis (x %, y %). Avant : invisible. */
-const reveal = (scene, start, x = 50, y = 50, duration = 700) =>
-  at(scene, [{ clipPath: `circle(0% at ${x}% ${y}%)` }, { clipPath: `circle(150% at ${x}% ${y}%)` }], start, duration, 'cubic-bezier(0.65, 0, 0.35, 1)');
-/** Les mots d'un titre montent l'un après l'autre. */
-const words = (root, start, step = 90) =>
-  [...root.querySelectorAll('.w')].forEach((w, i) =>
-    at(w, [{ opacity: 0, transform: 'translateY(0.6em) rotate(3deg)' }, { opacity: 1, transform: 'none' }], start + i * step, 650, OUT));
-
-/* Logo : l'Afrique dorée et le chariot (même dessin que le site, BethanieLogo.tsx). */
-const AFRICA = 'M21.6 7.1 32.6 5.9 42.4 5.5 41.4 9.5 45.4 10.8 52.6 14 53.9 11.8 60.1 12.3 67.6 12.5 69.5 14.4 75.4 27.4 78.3 32.4 83 36.3 85.1 38.9 93 37.1 93.1 38.9 85.4 49.4 78.5 56.9 78 60.4 79.5 65.6 72.4 76.6 69.6 84.4 67.6 89.3 60.9 94.4 53.9 95.4 51.9 94.4 47 80.6 45.6 67.6 45.4 62.9 44.3 59.4 40.6 51.4 41 46.9 36.4 46.5 33.1 43.9 28.9 44.9 26.4 46 23.9 45.3 19.3 46.4 15.4 44 12.4 41.3 8.9 37.5 7 33.5 8.9 29.4 7.6 25.9 10.8 19.4 16.9 13.9 19.4 9.9Z';
-const drawLogo = (svg, id) => {
-  svg.innerHTML = `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F4CD6E"/><stop offset="55%" stop-color="#E5A93C"/><stop offset="100%" stop-color="#B87C17"/></linearGradient></defs>
-    <path class="africa" d="${AFRICA}" fill="url(#${id})" stroke="url(#${id})" stroke-width="3" stroke-linejoin="round"/>
-    <ellipse cx="88" cy="75" rx="2.6" ry="7.5" transform="rotate(18 88 75)" fill="#D19A2E"/>
-    <g fill="none" stroke="#0F5132" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
-      <path class="cart-path" d="M31 24h7l7 22h22l6-15H42" stroke-dasharray="160" stroke-dashoffset="160"/>
-      <path class="cart-path" d="M50 31l2 15M60 31l-1 15" stroke-width="3" stroke-dasharray="160" stroke-dashoffset="160"/>
-    </g>
-    <circle class="wheel" cx="49" cy="53" r="3.6" fill="#0F5132" style="transform-box:fill-box;transform-origin:center;transform:scale(0)"/>
-    <circle class="wheel" cx="64" cy="53" r="3.6" fill="#0F5132" style="transform-box:fill-box;transform-origin:center;transform:scale(0)"/>`;
-};
-const animateLogo = (svg, start) => {
-  at(svg, [{ opacity: 0, transform: 'scale(0.4) rotate(-8deg)' }, { opacity: 1, transform: 'none' }], start, 900, SPRING);
-  svg.querySelectorAll('.cart-path').forEach((p, i) => at(p, [{ strokeDashoffset: 160 }, { strokeDashoffset: 0 }], start + 450 + i * 120, 800, OUT));
-  svg.querySelectorAll('.wheel').forEach((w, i) => at(w, [{ transform: 'scale(0)' }, { transform: 'scale(1)' }], start + 1200 + i * 90, 450, SPRING));
-};
-const letters = (el, start, step = 60) => {
-  el.innerHTML = [...el.textContent].map((c) => `<span>${c}</span>`).join('');
-  [...el.children].forEach((s, i) =>
-    at(s, [{ opacity: 0, transform: 'translateY(70px) scale(0.9)' }, { opacity: 1, transform: 'none' }], start + i * step, 600, OUT));
-};
-
-/* ------------------------------------------------------------------ */
-/* Contenu généré                                                      */
-/* ------------------------------------------------------------------ */
-drawLogo($('#A-logo'), 'goldA');
-drawLogo($('#H-logo'), 'goldH');
-
-const CATS = [
-  ['mode', 'Mode'], ['electronique', 'Électronique'], ['maison', 'Maison'], ['alimentation', 'Alimentation'],
-  ['beaute', 'Beauté'], ['enfants', 'Enfants & Bébé'], ['agriculture', 'Agriculture'], ['services', 'Services'],
-];
-$('#C-tiles').innerHTML = CATS.map(([id, name], i) =>
-  `<div class="tile o0" style="left:${i % 2 ? 560 : 90}px;top:${480 + Math.floor(i / 2) * 304}px"><img src="/public/images/categories/${id}.webp" alt="" /><b>${name}</b></div>`).join('');
-
-const PAYS = [
-  ['#1DC8F2', '#fff', '<i class="fa-solid fa-water"></i>', 'Wave'],
-  ['#FF7900', '#fff', 'OM', 'Orange Money'],
-  ['#FFCC00', '#004F71', 'MTN', 'MTN MoMo'],
-  ['#0066B3', '#fff', '<span style="font-size:25px">moov</span>', 'Moov Money'],
-  ['#1e293b', '#fff', '<i class="fa-solid fa-credit-card"></i>', 'Carte bancaire'],
-  ['#059669', '#fff', '<i class="fa-solid fa-money-bill-wave"></i>', 'Paiement à la livraison'],
-];
-$('#E-list').innerHTML = PAYS.map(([bg, fg, logo, name], i) =>
-  `<div class="pay o0" style="top:${560 + i * 152}px"><span class="logo" style="background:${bg};color:${fg}">${logo}</span>${name}${i === 0 ? '<span class="sel o0"></span><span class="tick o0"><i class="fa-solid fa-check"></i></span>' : ''}</div>`).join('');
-
-// Particules dorées (ouverture) : positions fixes, pour une vidéo identique à chaque rendu.
-const rnd = (i, s) => { const x = Math.sin(i * 12.9898 + s * 78.233) * 43758.5453; return x - Math.floor(x); };
-$('#A-particles').innerHTML = Array.from({ length: 18 }, (_, i) =>
-  `<span class="particle" style="left:${220 + rnd(i, 1) * 640}px;top:${700 + rnd(i, 2) * 500}px"></span>`).join('');
-$('#F-sparks').innerHTML = Array.from({ length: 12 }, () => '<span class="spark o0" style="left:905px;top:1020px"></span>').join('');
-
-/* ------------------------------------------------------------------ */
-/* Ligne de temps (millisecondes)                                      */
-/* ------------------------------------------------------------------ */
-const build = () => {
-  // A. Ouverture — 0 à 4 s
-  at($('#A-kente'), [{ opacity: 0 }, { opacity: 0.08 }], 0, 1500, 'ease-out');
-  at($('#A-glow'), [{ opacity: 0, transform: 'scale(0.6)' }, { opacity: 1, transform: 'scale(1)' }], 200, 1400, OUT);
-  at($('#A-glow'), [{ transform: 'scale(1)' }, { transform: 'scale(1.08)' }], 1600, 1200, 'ease-in-out', 'forwards', { iterations: 3, direction: 'alternate' });
-  animateLogo($('#A-logo'), 250);
-  letters($('#A-name'), 1250);
-  enter($('#A-slogan'), 2000, 650);
-  at($('#A-line'), [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], 2300, 700, OUT);
-  $$('#A-particles .particle').forEach((p, i) =>
-    at(p, [{ opacity: 0, transform: 'translateY(0) scale(0.6)' }, { opacity: 0.9, offset: 0.2 }, { opacity: 0, transform: 'translateY(-260px) scale(1.2)' }],
-      300 + rnd(i, 3) * 1800, 2600, 'ease-out', 'both'));
-
-  // B. La promesse — 3,6 à 8,2 s
-  reveal($('#B'), 3600, 50, 100);
-  pop($('#B-pill'), 4100);
-  words($('#B-title'), 4250, 95);
-  at($('#B-bar'), [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], 4900, 500, OUT);
-  enter($('#B-sub'), 5200, 600, 'translateY(40px)');
-  enter($('#B-ci'), 5700, 650, 'translateX(-300px)', SPRING);
-  enter($('#B-sn'), 5850, 650, 'translateX(300px)', SPRING);
-  ['#B-pill', '#B-title', '#B-sub', '#B-ci', '#B-sn'].forEach((s, i) => leave($(s), 7700 + i * 50));
-
-  // C. Catégories — 8 à 13 s
-  reveal($('#C'), 8050, 50, 50, 300);
-  words($('#C-title'), 8250, 80);
-  enter($('#C-sub'), 8700, 500, 'translateY(30px)');
-  $$('#C-tiles .tile').forEach((tile, i) => {
-    at(tile, [{ opacity: 0, transform: 'translateY(90px) scale(0.85)' }, { opacity: 1, transform: 'none' }], 8800 + i * 110, 650, SPRING);
-    at(tile.querySelector('img'), [{ transform: 'translateY(0)' }, { transform: 'translateY(-10px)' }], 9800 + i * 160, 900, 'ease-in-out', 'forwards', { iterations: 2, direction: 'alternate' });
-    leave(tile, 12450 + i * 45, 380, 'translateY(-40px) scale(0.92)');
-  });
-  leave($('#C-title'), 12450); leave($('#C-sub'), 12450);
-
-  // D. Commander — 12,8 à 18 s
-  reveal($('#D'), 12800, 85, 15);
-  words($('#D-title'), 13300, 110);
-  pop($('#D-cart'), 13450);
-  at($('#D-card'), [{ opacity: 0, transform: 'translateY(260px) rotate(4deg)' }, { opacity: 1, transform: 'none' }], 13600, 800, SPRING);
-  at($('#D-photo'), [{ transform: 'scale(1.15)' }, { transform: 'scale(1)' }], 13600, 1600, OUT);
-  at($('#D-badge'), [{ opacity: 0, transform: 'translateX(-30px) scale(0.7)' }, { opacity: 1, transform: 'none' }], 14250, 500, SPRING);
-  // La main arrive, appuie sur « + »
-  at($('#D-hand'), [{ opacity: 0, transform: 'translate(220px, 420px)' }, { opacity: 1, transform: 'translate(0, 0)' }], 14700, 700, OUT);
-  at($('#D-hand'), [{ transform: 'translate(0, 0) scale(1)' }, { transform: 'translate(0, 0) scale(0.85)' }, { transform: 'translate(0, 0) scale(1)' }], 15450, 260, 'ease-in-out', 'forwards');
-  at($('#D-add'), [{ transform: 'scale(1)' }, { transform: 'scale(0.88)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }], 15450, 450, 'ease-out', 'forwards');
-  at($('#D-ok'), [{ opacity: 0, transform: 'scale(0.6)' }, { opacity: 1, transform: 'scale(1)' }], 15550, 400, SPRING);
-  at($('#D-hand'), [{ opacity: 1, transform: 'translate(0, 0)' }, { opacity: 0, transform: 'translate(120px, 240px)' }], 15800, 500, IN, 'forwards');
-  // La photo s'envole jusqu'au panier (trajectoire en arc : horizontal et vertical séparés)
-  at($('#D-fly'), [{ opacity: 0, transform: 'scale(1.6)' }, { opacity: 1, transform: 'scale(1.6)', offset: 0.08 }, { opacity: 1, transform: 'scale(1) rotate(-12deg)', offset: 0.5 }, { opacity: 0.6, transform: 'scale(0.35)' }], 15650, 850, 'ease-in');
-  at($('#D-flyX'), [{ transform: 'translateX(0)' }, { transform: 'translateX(375px)' }], 15650, 850, 'cubic-bezier(0.4, 0, 0.6, 1)');
-  at($('#D-flyY'), [{ transform: 'translateY(0)' }, { transform: 'translateY(-525px)' }], 15650, 850, 'cubic-bezier(0.25, 0.6, 0.4, 1)');
-  at($('#D-fly'), [{ opacity: 0.6 }, { opacity: 0 }], 16500, 60, 'linear', 'forwards');
-  at($('#D-cart'), [{ transform: 'scale(1)' }, { transform: 'scale(1.3)' }, { transform: 'scale(0.92)' }, { transform: 'scale(1)' }], 16500, 500, 'ease-out', 'forwards');
-  pop($('#D-count'), 16520, 500);
-  enter($('#D-toast'), 16650, 500, 'translateY(80px) scale(0.96)');
-  ['#D-title', '#D-cart', '#D-card', '#D-toast'].forEach((s, i) => leave($(s), 17650 + i * 60));
-
-  // E. Paiement — 17,9 à 22,4 s
-  reveal($('#E'), 17900, 15, 90);
-  words($('#E-title'), 18300, 100);
-  $$('#E-list .pay').forEach((chip, i) => {
-    at(chip, [{ opacity: 0, transform: 'translateX(320px)' }, { opacity: 1, transform: 'none' }], 18650 + i * 130, 600, SPRING);
-    leave(chip, 21950 + i * 40, 380, 'translateX(-200px)');
-  });
-  const wave = $('#E-list .pay');
-  at(wave, [{ transform: 'scale(1)' }, { transform: 'scale(1.05)' }, { transform: 'scale(1)' }], 19900, 450, 'ease-out', 'forwards');
-  pop(wave.querySelector('.sel'), 19900, 450);
-  pop(wave.querySelector('.tick'), 20050, 500);
-  pop($('#E-secure'), 20500, 600);
-  leave($('#E-title'), 21950); leave($('#E-secure'), 22050);
-
-  // F. Livraison — 22,2 à 27 s
-  reveal($('#F'), 22200, 50, 0);
-  words($('#F-title'), 22700, 110);
-  enter($('#F-sub'), 23050, 500, 'translateY(30px)');
-  pop($('#F-shop'), 23200);
-  pop($('#F-home'), 23350);
-  at($('#F-track'), [{ opacity: 0 }, { opacity: 1 }], 23300, 400, 'ease-out');
-  pop($('#F-truck'), 23500, 450);
-  at($('#F-fill'), [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], 23750, 1800, 'ease-in-out');
-  at($('#F-truck'), [{ transform: 'translateX(0)' }, { transform: 'translateX(640px)' }], 23750, 1800, 'ease-in-out', 'forwards');
-  at($('#F-truck-i'), [{ transform: 'translateY(0) rotate(0)' }, { transform: 'translateY(-5px) rotate(-3deg)' }], 23750, 225, 'ease-in-out', 'forwards', { iterations: 8, direction: 'alternate' });
-  [['#F-s1', 23700], ['#F-s2', 24650], ['#F-s3', 25550]].forEach(([s, t]) => {
-    enter($(s), 23400, 500, 'translateY(30px)');
-    pop($(s).querySelector('.dot i'), t, 450);
-  });
-  // Arrivée : le camion « entre » dans la maison, qui s'illumine.
-  at($('#F-truck'), [{ opacity: 1, transform: 'translateX(640px) scale(1)' }, { opacity: 0, transform: 'translateX(640px) scale(0.4)' }], 25450, 300, IN, 'forwards');
-  at($('#F-home'), [{ transform: 'scale(1)' }, { transform: 'scale(1.18)' }, { transform: 'scale(1)' }], 25550, 500, 'ease-out', 'forwards');
-  $$('#F-sparks .spark').forEach((sp, i) => {
-    const a = (i / 12) * Math.PI * 2;
-    at(sp, [{ opacity: 1, transform: 'translate(0, 0) scale(1)' }, { opacity: 0, transform: `translate(${Math.cos(a) * 170}px, ${Math.sin(a) * 170}px) scale(0.4)` }], 25550, 700, OUT, 'forwards');
-  });
-  pop($('#F-express'), 25900, 550);
-  ['#F-title', '#F-sub', '#F-shop', '#F-home', '#F-track', '#F-truck', '#F-s1', '#F-s2', '#F-s3', '#F-express'].forEach((s, i) => leave($(s), 26650 + i * 25));
-
-  // G. Vendeurs — 26,9 à 30,3 s
-  reveal($('#G'), 26900, 50, 100);
-  pop($('#G-pill'), 27300);
-  words($('#G-title'), 27450, 95);
-  at($('#G-card'), [{ opacity: 0, transform: 'translateY(120px) rotate(-3deg)' }, { opacity: 1, transform: 'none' }], 27800, 750, SPRING);
-  at($('#G-img'), [{ transform: 'scale(1.18)' }, { transform: 'scale(1.02)' }], 27800, 2400, 'ease-out');
-  at($('#G-pct'), [{ opacity: 0, transform: 'scale(0.6)' }, { opacity: 1, transform: 'scale(1)' }], 28350, 650, SPRING);
-  ['#G-pill', '#G-title', '#G-card', '#G-pct'].forEach((s, i) => leave($(s), 29900 + i * 50));
-
-  // H. Fin — 30,2 à 35 s
-  reveal($('#H'), 30200, 50, 45, 800);
-  at($('#H-glow'), [{ opacity: 0, transform: 'scale(0.6)' }, { opacity: 1, transform: 'scale(1)' }], 30500, 1200, OUT);
-  animateLogo($('#H-logo'), 30550);
-  letters($('#H-name'), 31300, 55);
-  enter($('#H-slogan'), 31950, 600);
-  at($('#H-cta'), [{ opacity: 0, transform: 'translateY(60px) scale(0.9)' }, { opacity: 1, transform: 'none' }], 32300, 700, SPRING);
-  [33100, 34200].forEach((t) => at($('#H-sheen'), [{ transform: 'translateX(-150%) skewX(-20deg)' }, { transform: 'translateX(330%) skewX(-20deg)' }], t, 800, OUT, 'none'));
-  enter($('#H-flags'), 32700, 600, 'translateY(30px)');
-};
-
-/* ------------------------------------------------------------------ */
-/* Lecture (aperçu) et rendu image par image (rendu.mjs)               */
-/* ------------------------------------------------------------------ */
-const ready = Promise.all([document.fonts.ready, ...[...document.images].map((im) => im.decode().catch(() => undefined))]);
-window.__total = TOTAL;
-window.__prepare = async () => {
-  await ready;
-  document.getAnimations().forEach((a) => a.cancel());
-  build();
-  document.getAnimations().forEach((a) => a.pause());
-  return TOTAL;
-};
-window.__seek = (t) => document.getAnimations().forEach((a) => { a.currentTime = t; });
-
-if (!location.search.includes('rendu')) {
-  // Aperçu : la scène est réduite pour tenir dans la fenêtre, et la vidéo boucle.
-  const fit = () => { const s = Math.min(innerWidth / 1080, innerHeight / 1920); $('#stage').style.transform = `scale(${s})`; };
-  addEventListener('resize', fit); fit();
-  const play = async () => { await ready; document.getAnimations().forEach((a) => a.cancel()); build(); setTimeout(play, TOTAL + 600); };
-  play();
-}
-</script>
+<div id="stage"></div>
+<script src="animation.js"></script>
 </body>
 </html>

@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Le dossier marketing (vidéo de présentation) ne fait pas partie du site : ses classes ne sont pas générées ici. */
+@source not "../marketing";
 
 /* Polices servies par le site (sous-ensembles latin et latin étendu, téléchargés seulement si utilisés). */
 @font-face {

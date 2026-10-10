@@ -39,3 +39,4 @@ dist-ssr
 
 # Vidéo de présentation pleine qualité (8,8 Mo, pour WhatsApp et les réseaux) : gardée en local ; le site utilise public/videos/
 marketing/video-pub/*.mp4
+marketing/video-pub/.travail/

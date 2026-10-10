@@ -182,18 +182,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <section className="group relative overflow-hidden rounded-[28px] bg-gradient-to-r from-brand-900 via-brand-800 to-[#2f5c45] text-white shadow-[0_30px_80px_-28px_rgba(15,23,42,0.7)]">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,205,102,0.35),transparent_32%)]" aria-hidden="true" />
           <div className="absolute -right-12 top-12 h-32 w-32 rounded-full bg-gold-400/30 blur-3xl transition-transform duration-700 group-hover:scale-125" aria-hidden="true" />
-          <div className="absolute left-8 bottom-8 h-24 w-24 rounded-full bg-white/10 blur-2xl transition-transform duration-700 group-hover:translate-y-[-6px]" aria-hidden="true" />
-
-          <div className="relative grid gap-8 p-5 lg:grid-cols-[1.2fr_0.8fr] lg:p-8">
-            <div className="flex flex-col justify-center">
-              <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-gold-200 backdrop-blur-sm">
-                <i className="fa-solid fa-bolt"></i>
-                {t('home.promoBadge')}
-              </span>
-              <h2 className="mt-4 max-w-xl text-2xl font-bold tracking-[-0.03em] text-balance sm:text-3xl lg:text-4xl">
+          <div className="relative p-6 sm:p-8 lg:p-10">
+            <div className="max-w-3xl">
+              <h2 className="text-2xl font-bold tracking-[-0.03em] text-balance sm:text-3xl lg:text-4xl">
                 {t('home.promoTitle')}
               </h2>
-              <p className="mt-3 max-w-lg text-sm text-white/75 lg:text-base">
+              <p className="mt-3 max-w-2xl text-sm text-white/75 lg:text-base">
                 {t('home.promoText')}
               </p>
 
@@ -212,61 +206,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   <i className="fa-solid fa-store"></i>
                   {t('home.promoSecondary')}
                 </button>
-              </div>
-
-              <div className="mt-6 flex flex-wrap gap-3 text-[11px] text-white/75 sm:text-xs">
-                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1.5">{t('home.promoStatClients')}</span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1.5">{t('home.promoStatSupport')}</span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1.5">{t('home.promoStatDelivery')}</span>
-              </div>
-            </div>
-
-            <div className="relative flex items-center justify-center">
-              <div className="relative w-full max-w-[300px]">
-                <div className="absolute -left-4 top-5 rounded-full border border-white/15 bg-brand-950/60 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-gold-200 shadow-lg backdrop-blur-sm">
-                  {t('home.promoChip')}
-                </div>
-                <div className="absolute -right-2 bottom-6 rounded-full bg-gold-400 px-3 py-1.5 text-sm font-black text-brand-dark shadow-lg shadow-gold-400/30">
-                  -20%
-                </div>
-
-                <div className="rounded-[26px] border border-white/15 bg-white/8 p-4 shadow-[0_32px_70px_-25px_rgba(0,0,0,0.8)] backdrop-blur-md transition-transform duration-500 hover:-translate-y-1">
-                  <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-white/65">
-                    <span>{t('home.promoMiniLabel')}</span>
-                    <span>{t('home.promoLive')}</span>
-                  </div>
-
-                  <div className="mt-4 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3">
-                    <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_#f9d57a,_#d18f25_60%,_#7c4a14)] shadow-inner shadow-white/30">
-                      <i className="fa-solid fa-bag-shopping text-2xl text-brand-dark"></i>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-white">{t('home.promoProduct')}</p>
-                      <p className="mt-1 text-[11px] text-white/65">{t('home.promoSeller')}</p>
-                      <div className="mt-2 flex items-end justify-between gap-2">
-                        <span className="text-lg font-bold text-gold-300">28 500 FCFA</span>
-                        <span className="rounded-full bg-gold-400/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-gold-200">
-                          {t('home.promoTag')}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[11px] text-white/70">
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-1.5 py-2">
-                      <div className="text-base font-bold text-white">{t('home.promoStatHours')}</div>
-                      <div>{t('home.promoStatDeliveryLabel')}</div>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-1.5 py-2">
-                      <div className="text-base font-bold text-white">{t('home.promoStatSales')}</div>
-                      <div>{t('home.promoStatSalesLabel')}</div>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-1.5 py-2">
-                      <div className="text-base font-bold text-white">{t('home.promoStatSupportHours')}</div>
-                      <div>{t('home.promoStatSupportLabel')}</div>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
