@@ -15,8 +15,8 @@ import {
 } from '../../src/utils/commerce.ts';
 import { createGuestAccount, currentUser } from '../auth.ts';
 import { db } from '../db.ts';
-import { HttpError, badRequest, conflict, forbidden, notFound, parse } from '../http.ts';
-import { onlinePaymentReady, publicUrl, reconcileOrderPayment, startPayment } from '../payments.ts';
+import { HttpError, badRequest, conflict, forbidden, notFound, pageQuery, parse } from '../http.ts';
+import { onlinePaymentReady, publicUrl, reconcileOrderPayment, startPaymentOnce } from '../payments.ts';
 import { getProduct, loadOrders } from '../serializers.ts';
 import { acquireCommission, cancelOrder, guarded, settleOrder } from '../transactions.ts';
 
@@ -67,9 +67,13 @@ const orderHasShop = async (orderId: string, shopId: string) =>
 
 /* ---------- Client ---------- */
 
+// « Mes commandes » : les 100 plus récentes par page (le site les affiche toutes, un client n'en a pas davantage).
+const MyOrdersPage = pageQuery(100, 100);
+
 ordersRouter.get('/orders', async (req, res) => {
   const user = currentUser(req);
-  const rows = await db.all('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC', user.id);
+  const { limit, offset } = parse(MyOrdersPage, req.query);
+  const rows = await db.all('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?', user.id, limit, offset);
   res.json({ orders: await loadOrders(rows) });
 });
 
@@ -179,10 +183,11 @@ ordersRouter.post('/orders', orderLimiter, async (req, res) => {
     await settleOrder(id);
   });
 
-  // Paiement en ligne : création du paiement GeniusPay ; en cas d'échec, la commande est annulée (stock rendu).
+  // Paiement en ligne : création du paiement GeniusPay (une seule fois par commande, référence enregistrée) ; en cas
+  // d'échec, la commande est annulée (stock rendu).
   if (!cashOnDelivery) {
     try {
-      const started = await startPayment({
+      await startPaymentOnce({
         orderId: id,
         amount: total,
         method: data.paymentMethod,
@@ -194,7 +199,6 @@ ordersRouter.post('/orders', orderLimiter, async (req, res) => {
         },
         returnUrl: `${publicUrl(req)}/#/suivi/${encodeURIComponent(id)}`,
       });
-      await db.run('UPDATE orders SET payment_reference = ?, payment_url = ? WHERE id = ?', started.reference, started.url, id);
     } catch (error) {
       await cancelOrder(id, 'paiement en ligne impossible à démarrer');
       throw error;
@@ -265,14 +269,20 @@ ordersRouter.post('/orders/:id/advance', async (req, res) => {
 
 /* ---------- Vendeur ---------- */
 
+// Commandes de la boutique : les 500 plus récentes par page (les indicateurs de l'espace vendeur portent sur elles).
+const ShopOrdersPage = pageQuery(500, 500);
+
 ordersRouter.get('/seller/orders', async (req, res) => {
   const user = currentUser(req);
+  const { limit, offset } = parse(ShopOrdersPage, req.query);
   const shop = await shopOf(user.id);
   if (!shop) throw forbidden('Ouvrez d’abord votre boutique dans l’espace vendeur.');
   const rows = await db.all(
     `SELECT * FROM orders WHERE id IN (SELECT order_id FROM order_items WHERE shop_id = ?)
-     ORDER BY created_at DESC`,
-    String(shop.id)
+     ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    String(shop.id),
+    limit,
+    offset
   );
   res.json({ orders: await loadOrders(rows, String(shop.id)) });
 });

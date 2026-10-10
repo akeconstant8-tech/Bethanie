@@ -30,6 +30,16 @@ export const OPENER_POLICY = 'same-origin-allow-popups';
 
 const kebab = (name) => name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
+/**
+ * Même politique, écrite dans la page elle-même (balise meta de index.html, posée à la construction par vite.config.ts) :
+ * elle protège aussi le site servi sans ces en-têtes (hébergement Firebase, copie hors ligne). « frame-ancestors »
+ * n'est pas accepté dans une balise meta : il reste assuré par l'en-tête.
+ */
+export const META_CSP = Object.entries(CSP_DIRECTIVES)
+  .filter(([name]) => name !== 'frameAncestors')
+  .map(([name, values]) => [kebab(name), ...values].join(' '))
+  .join('; ');
+
 /** En-têtes ajoutés aux pages et fichiers du site sur Vercel (l'API a déjà les siens, via helmet). */
 export const SITE_SECURITY_HEADERS = {
   'content-security-policy': [

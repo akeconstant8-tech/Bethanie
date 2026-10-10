@@ -71,7 +71,7 @@ class GeniusPayRefused extends HttpError {}
 const secretKey = () => {
   const key = process.env.GENIUSPAY_SECRET_KEY?.trim();
   if (!key) {
-    console.error('[api] Paiement GeniusPay : variable GENIUSPAY_SECRET_KEY manquante (voir .env.example).');
+    console.error('[api] Paiement GeniusPay non configuré sur ce serveur (voir .env.example, rubrique « Paiement en ligne GeniusPay »).');
     throw new HttpError(503, 'Le paiement en ligne n’est pas encore configuré. Choisissez le paiement à la livraison.');
   }
   return key;
@@ -123,19 +123,20 @@ export interface PaymentStart {
   url: string;
 }
 
-/**
- * Crée le paiement GeniusPay d'une commande. Essaie d'abord le moyen choisi par le client (paiement direct) ;
- * si GeniusPay le refuse explicitement, repasse par sa page de paiement où le client choisit lui-même.
- * GeniusPay ne propose pas de clé d'idempotence (documentation de l'API) : l'unicité est garantie de notre côté
- * (un seul appel par commande, pas de nouvel essai sans réponse claire, référence unique en base).
- */
-export const startPayment = async (params: {
+interface PaymentRequest {
   orderId: string;
   amount: number;
   method: string;
   customer: { name: string; email: string; phone?: string; country: 'CI' | 'SN' };
   returnUrl: string;
-}): Promise<PaymentStart> => {
+}
+
+/**
+ * Crée le paiement GeniusPay d'une commande. Essaie d'abord le moyen choisi par le client (paiement direct) ;
+ * si GeniusPay le refuse explicitement, repasse par sa page de paiement où le client choisit lui-même.
+ * N'est appelée que par startPaymentOnce (un seul paiement par commande).
+ */
+const createGeniusPayment = async (params: PaymentRequest, idempotencyKey: string): Promise<PaymentStart> => {
   const base = {
     amount: params.amount,
     currency: 'XOF',
@@ -143,7 +144,8 @@ export const startPayment = async (params: {
     customer: { name: params.customer.name, email: params.customer.email, phone: params.customer.phone, country: params.customer.country },
     success_url: params.returnUrl,
     error_url: params.returnUrl,
-    metadata: { order_id: params.orderId, source: 'bethanie' },
+    // Référence unique de la commande, renvoyée par GeniusPay avec le paiement (rapprochement).
+    metadata: { order_id: params.orderId, source: 'bethanie', idempotency_key: idempotencyKey },
   };
   const code = METHOD_CODES[params.method];
   let payment: GeniusPayment;
@@ -159,6 +161,35 @@ export const startPayment = async (params: {
     throw new HttpError(502, 'Le service de paiement a refusé la demande. Réessayez ou choisissez le paiement à la livraison.');
   }
   return { reference: payment.reference, url };
+};
+
+/**
+ * Paiement GeniusPay d'une commande, ouvert UNE seule fois (clé d'idempotence : le numéro de commande). GeniusPay ne
+ * propose pas de clé d'idempotence (documentation de l'API) : la garantie est assurée ici. Une commande qui a déjà un
+ * paiement le réutilise ; la référence n'est enregistrée que si aucune ne l'a été entre-temps (mise à jour
+ * conditionnelle), et le premier paiement enregistré l'emporte toujours.
+ */
+export const startPaymentOnce = async (params: PaymentRequest): Promise<PaymentStart> => {
+  const idempotencyKey = `bethanie-${params.orderId}`;
+  const existing = async () => {
+    const row = await db.get('SELECT payment_reference, payment_url FROM orders WHERE id = ?', params.orderId);
+    return row?.payment_reference && row.payment_url ? { reference: String(row.payment_reference), url: String(row.payment_url) } : null;
+  };
+  const already = await existing();
+  if (already) return already;
+  const started = await createGeniusPayment(params, idempotencyKey);
+  const { changes } = await db.run(
+    'UPDATE orders SET payment_reference = ?, payment_url = ? WHERE id = ? AND payment_reference IS NULL',
+    started.reference,
+    started.url,
+    params.orderId
+  );
+  if (changes === 0) {
+    console.warn(`[api] Paiement GeniusPay en double évité pour ${params.orderId} : le premier est conservé.`);
+    const first = await existing();
+    if (first) return first;
+  }
+  return started;
 };
 
 /* ------------------------------------------------------------------ */
@@ -232,7 +263,7 @@ export const verifyWebhookSignature = (rawBody: string, signature: string, times
 export const geniusPayWebhook = async (req: Request, res: Response) => {
   const secret = process.env.GENIUSPAY_WEBHOOK_SECRET?.trim();
   if (!secret) {
-    console.error('[api] Notification GeniusPay ignorée : variable GENIUSPAY_WEBHOOK_SECRET manquante.');
+    console.error('[api] Notification GeniusPay ignorée : vérification des notifications non configurée (voir .env.example).');
     res.status(503).json({ error: 'Notifications non configurées.' });
     return;
   }

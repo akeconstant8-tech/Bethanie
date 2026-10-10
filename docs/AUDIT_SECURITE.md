@@ -1,22 +1,26 @@
 # Audit de sécurité — Béthanie
 
 > Audit du 5 octobre 2026 — code de la branche de travail (après connexion Google, assistant vendeur et contrôleur
-> des transactions) et site en ligne https://bethanie.vercel.app (lecture seule).
+> des transactions) et site en ligne https://bethanie.vercel.app (lecture seule). Compléments : 5 octobre (§ 7) et
+> 10 octobre 2026 (§ 8, rapport Herozion).
 > Agent responsable : `.claude/agents/securite.md` ; méthode : `.claude/skills/audit-securite/SKILL.md`.
 
 ## Synthèse
 
+État au 10 octobre 2026 (§ 1, 7 et 8) :
+
 | | Nombre |
 |---|---|
-| Corrigés | 7 |
-| Critiques à traiter **avant d’encaisser de vrais paiements** | 3 |
-| Moyens | 3 (dont 1 conservé par décision) |
+| Corrigés | 23 (S1 à S22, C1) |
+| À traiter **avant d’encaisser de vrais paiements** | 2 (C2 base permanente, C3 reversements aux vendeurs) |
+| Moyens | 4 (dont 1 conservé par décision) |
 | Faibles | 5 |
 | Points conformes vérifiés | 6 |
+| Alertes de scanner vérifiées et sans danger | 9 |
 
-**En une phrase** : les montants sont fiables et désormais contrôlés à chaque transaction (commission de 5 %
-comprise), mais Béthanie ne doit pas encore encaisser d’argent réel : le paiement est simulé et, en ligne, les
-données sont temporaires.
+**En une phrase** : les montants sont fiables et contrôlés à chaque transaction (commission de 5 % comprise) et seul
+GeniusPay peut marquer une commande payée (simulation supprimée le 7 octobre), mais Béthanie ne doit pas encore
+encaisser d’argent réel : en ligne, les données restent temporaires tant que la base Turso n’est pas branchée.
 
 Gravité : **Critique** = perte d’argent ou de données certaine en usage réel ; **Élevée** = exploitable facilement ;
 **Moyenne** = exploitable dans certaines conditions ; **Faible** = impact limité ; **Info** = constat.
@@ -38,7 +42,7 @@ Gravité : **Critique** = perte d’argent ou de données certaine en usage rée
 | ID | Gravité | Constat | Conséquence | Correction proposée |
 |---|---|---|---|---|
 | C1 | Critique | En ligne, `PAYMENT_PROVIDER=simulation` et `DEMO_MODE=true` (réponse de `/api/config`) : tout client connecté peut déclarer **sa** commande « payée » (`POST /api/orders/:id/pay`) et, en mode démo, la faire avancer jusqu’à « livrée » | Les commissions « perçues » du rapport sont **fictives** tant que le paiement n’est pas réel ; un client pourrait obtenir une commande marquée payée sans payer | Lot 3 : agrégateur Mobile Money / carte (CinetPay, PayDunya…) avec confirmation signée par le prestataire (webhook) ; `DEMO_MODE=false` ; retirer la route de paiement simulé |
-| C2 | Critique | Sur Vercel, la base est dans `/tmp` (limite L22) | Commandes, répartitions et **journal des commissions effacés** à chaque redémarrage de l’instance | Base hébergée persistante (Turso / libSQL, compatible SQLite, ou Postgres) et stockage des photos (Vercel Blob) |
+| C2 | Critique | Sur Vercel, la base est dans `/tmp` (limite L22) ; chaque instance a la sienne (cause des « 401 » sur `/api/orders` constatés en ligne : session ouverte sur une instance, inconnue d’une autre) | Commandes, répartitions et **journal des commissions effacés** à chaque redémarrage de l’instance | Base Turso : **code prêt** (7 octobre 2026), il reste à définir `TURSO_DATABASE_URL` et `TURSO_AUTH_TOKEN` sur Vercel ; stockage des photos (Vercel Blob) |
 | C3 | Élevée | Pas d’encaissement centralisé ni de reversement aux vendeurs (VEN-08) | La commission n’est « perçue » que si l’argent des clients arrive sur le compte de Béthanie, qui reverse ensuite 95 % | Compte marchand Béthanie chez l’agrégateur ; reversements automatiques depuis la table `order_settlements` (part vendeur), relevé par vendeur |
 
 ## 3. Moyens
@@ -110,7 +114,7 @@ Contexte : achat sans compte (profil invité ouvert à la commande), paiement r�
 |---|---|---|---|
 | C1 (suite) | ~~Critique~~ **Corrigé le 7 octobre 2026** | Le client pouvait faire avancer **sa propre** commande jusqu’à « livrée » (mode démo) et déclarer sa commande payée (route de paiement simulé) | Simulation et mode démo **supprimés** du code : seuls GeniusPay (statut revérifié auprès de GeniusPay) ou le vendeur à la livraison marquent une commande payée ; seul le vendeur ou l’administrateur fait avancer une commande |
 | M5 | Moyenne | Achat sans compte : une commande « paiement à la livraison » ne s’annule jamais d’elle-même ; quelqu’un qui change d’adresse IP peut bloquer du stock (10 commandes/heure par adresse, jusqu’à 99 articles par ligne) | Décision du porteur : quantité maximale par commande invitée, confirmation par SMS/WhatsApp, ou annulation automatique si le vendeur ne confirme pas |
-| F6 | Faible | Commandes d’un client et d’une boutique renvoyées sans pagination (limitées à son propre compte) | Pagination quand les volumes le justifieront |
+| F6 | ~~Faible~~ **Corrigé le 10 octobre 2026** (S21) | Commandes d’un client et d’une boutique renvoyées sans pagination (limitées à son propre compte) | Pagination plafonnée par le serveur |
 
 ### Alertes du scan vérifiées une à une (non modifiées)
 
@@ -118,12 +122,40 @@ Contexte : achat sans compte (profil invité ouvert à la commande), paiement r�
 |---|---|
 | `server/db.ts` 171-178 (« injection de commande », « requête non limitée ») | Mise à jour du schéma au démarrage : texte SQL fixe, aucune donnée saisie ; `PRAGMA table_info` renvoie quelques colonnes |
 | `server/payments.ts`, `server/routes/assistant.ts`, `server/controle.ts` (« données sensibles dans les journaux ») | Ces lignes écrivent le **nom** d’une variable absente ou refusée, jamais sa valeur (vérifié dans les journaux de test) |
-| `server/payments.ts` (« clé d’idempotence manquante ») | GeniusPay n’en propose pas ; unicité assurée côté Béthanie (S12, S13, référence unique en base, mise à jour conditionnelle) |
+| `server/payments.ts` (« clé d’idempotence manquante ») | GeniusPay n’en propose pas ; unicité assurée côté Béthanie (S12, S13, S19 : un seul paiement par commande, clé `bethanie-<commande>`) |
 | `server/transactions.ts` (5 « requêtes non limitées ») | Contrôle complet voulu (chaîne du journal) ; seulement administrateur, au démarrage ou en ligne de commande, avec cache de 15 s et 20 demandes/minute |
 | `server/http.ts:52` (« informations de debug ») | Messages écrits à la main en français, plus le garde-fou contre toute trace technique (testé) |
 | `src/api/firebaseAuth.ts:13` (« clé en dur ») | Clé web publique de Firebase (`VITE_`), faite pour être dans le site |
 
-## 8. Variables à définir en production
+## 8. Audit complémentaire — 10 octobre 2026 (rapport Herozion)
+
+Contexte : rapport Herozion du porteur de projet (note 24/100, F). Chaque alerte a été vérifiée dans le code ; les
+corrections ont été testées sur un serveur isolé (base temporaire, faux GeniusPay pour ne consommer aucun jeton du bac
+à sable), puis le scan a été relancé : **69/100 (C), 0 alerte critique, 0 alerte élevée**. Les alertes « critiques » du
+rapport visaient des éléments déjà supprimés (paiement simulé, mode démo) ou mal interprétés par le scanner.
+
+### Corrigés
+
+| ID | Gravité | Constat | Correction |
+|---|---|---|---|
+| S17 | Faible | Le service de mise à jour de l’application installable (`src/pwa/service-worker.js`) traitait tout message reçu sans vérifier d’où il venait | Messages acceptés seulement depuis l’adresse du site (`event.origin`). Testé : mise à jour et fonctionnement hors ligne inchangés |
+| S18 | Faible | La politique de sécurité du contenu n’existait que dans les en-têtes HTTP : une page servie sans eux (hébergeur mal réglé, cache, copie gardée par l’application installée) n’était plus protégée | Politique ajoutée aussi dans la page compilée (balise `meta`), générée depuis la même source (`server/security-policy.js`) à la compilation ; retirée en développement (rechargement instantané). `frame-ancestors` reste dans les en-têtes (le navigateur l’ignore dans une balise). Testé : aucune violation dans la console (accueil, catalogue, produit, panier, paiement sans compte, compte, espace vendeur), fenêtre Google toujours ouverte |
+| S19 | Moyenne | La référence du paiement GeniusPay était enregistrée sans condition : deux créations simultanées pour une même commande auraient pu laisser deux paiements ouverts, le second écrasant le premier | `startPaymentOnce` : clé unique `bethanie-<commande>` envoyée à GeniusPay dans les métadonnées ; un paiement existant est réutilisé sans rappeler GeniusPay ; enregistrement conditionnel (le premier paiement l’emporte, le doublon est signalé dans les journaux). Testé : un seul appel par commande, réutilisation, course simulée |
+| S20 | Faible | La réponse d’erreur reprenait `err.message`, que n’importe quel code peut modifier après coup (risque d’envoyer un détail interne au visiteur) | Message public figé à la création de l’erreur (`publicMessage`), seul envoyé ; le garde-fou contre les traces techniques reste en place. Testé : message modifié, requête SQL, trace d’appel, erreur inattendue → jamais envoyés |
+| S21 | Faible | Listes sans plafond imposé par le serveur (ex-F6) | `limit` / `offset` contrôlés : catalogue 100 par défaut et 500 au plus (le site charge le catalogue en une fois), avis 50, « Mes commandes » 100, commandes d’une boutique 500 ; toute valeur hors limites → 400. Testé |
+| S22 | Info | Journaux de démarrage citant le nom des variables secrètes absentes (signalé « données sensibles dans les journaux ») | Formulés sans nom de variable (renvoi à `.env.example`) ; aucune valeur n’y figurait déjà (vérifié) |
+
+### Alertes Herozion restantes (vérifiées, non modifiées)
+
+| Alerte | Pourquoi |
+|---|---|
+| 6 × « Endpoint list sans limite de pagination » (`catalog.ts` 24, 49, 60 ; `orders.ts` 73, 80, 275) | **Fausse alerte liée au nom** : le scanner signale toute route écrite `catalogRouter.get(…)` ou `ordersRouter.get(…)` sans lire son contenu. Preuve : la même route paginée est signalée sous le nom `catalogRouter` et ne l’est plus sous le nom `r`. Quatre de ces routes sont plafonnées (S21), les deux autres (`/products/:id`, `/orders/:id`) renvoient un seul élément |
+| « Clé en dur » `src/api/firebaseAuth.ts:13` | Clé web publique de Firebase lue dans une variable `VITE_` : faite pour être dans le site, ne donne aucun droit (déjà vu au § 7) |
+| « CSP sans Trusted Types » (faible) | L’activer bloquerait le chargement du module de connexion Google par Firebase (script ajouté dynamiquement) : la connexion des vendeurs ne marcherait plus. À reconsidérer si Firebase le prend en charge |
+
+La note affichée sur la plateforme Herozion ne change qu’après envoi d’un nouveau scan (`herozion push`).
+
+## 9. Variables à définir en production
 
 | Variable | Rôle |
 |---|---|

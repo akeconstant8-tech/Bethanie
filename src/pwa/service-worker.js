@@ -38,8 +38,10 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// La page demande l'activation d'une nouvelle version (bouton « Mettre à jour »).
+// La page demande l'activation d'une nouvelle version (bouton « Mettre à jour »). Seules les pages de Béthanie
+// (même origine) sont écoutées ; tout autre message est ignoré.
 self.addEventListener('message', (event) => {
+  if (event.origin !== self.location.origin) return;
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 

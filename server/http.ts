@@ -2,13 +2,18 @@ import type { NextFunction, Request, Response } from 'express';
 import { z, ZodError, type ZodTypeAny } from 'zod';
 import { describeError, redact } from './logs.ts';
 
-/** Erreur métier renvoyée telle quelle au client (message en français). */
+/**
+ * Erreur métier : `publicMessage` est la phrase écrite pour le visiteur (en français), la seule qui lui est envoyée ;
+ * `message` reste celle des journaux. Toute autre erreur ne donne au visiteur qu'un message générique.
+ */
 export class HttpError extends Error {
   status: number;
+  readonly publicMessage: string;
 
-  constructor(status: number, message: string) {
-    super(message);
+  constructor(status: number, publicMessage: string) {
+    super(publicMessage);
     this.status = status;
+    this.publicMessage = publicMessage;
   }
 }
 
@@ -25,6 +30,16 @@ z.setErrorMap((issue) => {
   if (issue.code === 'too_big') return { message: `Champ « ${field} » trop long.` };
   return { message: `Champ « ${field} » invalide.` };
 });
+
+/**
+ * Pagination d'une liste : « limit » éléments à partir de « offset », avec un plafond. Aucune liste de l'API ne peut
+ * renvoyer un nombre illimité de lignes.
+ */
+export const pageQuery = (defaultLimit: number, maxLimit: number) =>
+  z.object({
+    limit: z.coerce.number().int().min(1).max(maxLimit).default(defaultLimit),
+    offset: z.coerce.number().int().min(0).max(100_000).default(0),
+  });
 
 /** Valide un corps de requête ; lève une erreur 400 lisible sinon. */
 export const parse = <S extends ZodTypeAny>(schema: S, data: unknown): z.infer<S> => {
@@ -45,12 +60,14 @@ const looksLikeInternalLeak = (message: string) =>
 
 export const errorHandler = (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof HttpError) {
-    if (looksLikeInternalLeak(err.message)) {
-      console.error('[api] Message d’erreur suspect bloqué avant envoi au client :', redact(err.message.slice(0, 500)));
+    const publicMessage = err.publicMessage;
+    if (looksLikeInternalLeak(publicMessage)) {
+      console.error('[api] Message d’erreur suspect bloqué avant envoi au client :', redact(publicMessage.slice(0, 500)));
       res.status(err.status).json({ error: 'Une erreur est survenue. Réessayez dans un instant.' });
       return;
     }
-    res.status(err.status).json({ error: err.message });
+    // Seule la phrase écrite pour le visiteur part dans la réponse : jamais de trace, de chemin ni de détail interne.
+    res.status(err.status).json({ error: publicMessage });
     return;
   }
   if (err instanceof ZodError) {

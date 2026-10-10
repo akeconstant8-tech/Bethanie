@@ -36,22 +36,39 @@ Pour chaque point, noter : gravité (Critique / Élevée / Moyenne / Faible / In
 réponse HTTP), conséquence concrète pour Béthanie, correction proposée, statut.
 
 1. **Argent** : prix et montants recalculés côté serveur ; paiements (GeniusPay seul, aucune simulation ni mode démo ;
-   statut toujours revérifié auprès de GeniusPay ; notifications signées) ; codes promo (réutilisation) ; stock réservé
-   par des commandes non payées ; commission (§1).
+   statut toujours revérifié auprès de GeniusPay ; notifications signées et traitées une seule fois) ; **un seul
+   paiement GeniusPay par commande** (`startPaymentOnce`, clé `bethanie-<commande>`, enregistrement conditionnel) ;
+   codes promo (réutilisation) ; stock réservé par des commandes non payées ; commission (§1).
 2. **Comptes et sessions** : vérification des jetons Google (`server/firebase.ts`), liaison par e-mail, rôle admin
    (`ADMIN_EMAILS`), cookie `bethanie_session` (HttpOnly, Secure, SameSite), expiration, déconnexion.
 3. **Droits** : chaque route vérifie le propriétaire (commande, produit, boutique) ; vendeurs multi-boutiques (RG-10) ;
    routes admin.
-4. **Entrées** : schémas zod de chaque route ; photos (contenu vérifié, SVG refusé, taille) ; tailles des corps JSON.
-5. **Navigateur** : politique de contenu et en-têtes (`server/security-policy.js`, communs à helmet et Vercel) ;
-   protection contre les requêtes forgées (en-tête `X-Bethanie`) ; aucune donnée sensible dans `localStorage`.
+4. **Entrées** : schémas zod de chaque route ; photos (contenu vérifié, SVG refusé, taille) ; tailles des corps JSON ;
+   **toute liste plafonnée par le serveur** (`pageQuery` de `server/http.ts` : `limit`/`offset` bornés, 400 au-delà).
+   **Réponses d'erreur** : seul `publicMessage` (phrase écrite à la main) part au visiteur, jamais `err.message`.
+5. **Navigateur** : politique de contenu et en-têtes (`server/security-policy.js`, communs à helmet, Vercel et à la
+   balise `meta` ajoutée à la compilation par `vite.config.ts` : vérifier qu'elle est dans `dist/index.html` et absente
+   en développement) ; aucune violation de la politique dans la console (accueil, produit, panier, paiement sans
+   compte, compte, espace vendeur) et fenêtre Google qui s'ouvre ; service de mise à jour (`src/pwa/service-worker.js`) :
+   messages acceptés seulement depuis l'adresse du site ; protection contre les requêtes forgées (en-tête
+   `X-Bethanie`) ; aucune donnée sensible dans `localStorage`.
 6. **Secrets** : rien dans le code ni dans l'historique Git (`git log -p -S"<motif>"`) ; seules les variables `VITE_`
    publiques vont dans le site ; `.env.local` ignoré.
 7. **Dépendances** : `npm audit` (0 vulnérabilité attendue) ; versions récentes.
-8. **Production** : `curl -I` sur https://bethanie.vercel.app (en-têtes), `/api/config` (mode démo ?), persistance des
-   données (base dans `/tmp` sur Vercel = temporaire).
+8. **Production** : `curl -I` sur https://bethanie.vercel.app (en-têtes), `/api/config` (`onlinePayment`), persistance
+   des données (base dans `/tmp` sur Vercel = temporaire et propre à chaque instance : sessions perdues, « 401 » ;
+   Turso si `TURSO_DATABASE_URL` est défini). Quelques requêtes seulement : une rafale déclenche le contrôle anti-robots
+   de Vercel (403).
 9. **IA** : l'assistant vendeur ne voit que la boutique du vendeur, ne fait que proposer ; injection de consignes via
    les titres de produits → effet limité à la propre boutique.
+10. **Scanner automatique (Herozion)** : `herozion scan . -o json --offline` (aucun envoi), puis vérifier **chaque**
+   alerte dans le code. Une fausse alerte se documente avec sa preuve dans le rapport (§ 7 et 8 de
+   `docs/AUDIT_SECURITE.md`) ; ne jamais renommer ni masquer du code pour faire baisser une alerte. Connu : toute route
+   `xxxRouter.get(…)` est signalée « sans pagination » quel que soit son contenu ; la clé web Firebase (`VITE_`) est
+   publique. La note de la plateforme ne change qu'après `herozion push` (avec l'accord du porteur).
+
+Essais du paiement en ligne : de préférence avec un faux GeniusPay (interception des appels à `geniuspay.ci` dans le
+serveur d'essai) ; chaque essai réel en bac à sable consomme des jetons GeniusPay du porteur.
 
 ## 3. Règles
 

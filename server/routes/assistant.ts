@@ -34,7 +34,7 @@ const configured = () => Boolean(process.env.ANTHROPIC_API_KEY?.trim() || proces
 console.log(
   configured()
     ? `[api] Assistant vendeur : modèle ${MODEL}.`
-    : '[api] Assistant vendeur désactivé : variable ANTHROPIC_API_KEY manquante.'
+    : '[api] Assistant vendeur désactivé : accès à l’API Claude non configuré (voir .env.example, rubrique 4).'
 );
 
 let client: Anthropic | undefined;
@@ -273,7 +273,7 @@ assistantRouter.post('/', limiter, async (req, res) => {
   const shop = await shopOf(user.id);
   if (!shop) throw forbidden('Ouvrez d’abord votre boutique dans l’espace vendeur.');
   if (!configured()) {
-    console.error('[api] Assistant vendeur : variable ANTHROPIC_API_KEY manquante (voir .env.example).');
+    console.error('[api] Assistant vendeur : accès à l’API Claude non configuré (voir .env.example, rubrique 4).');
     throw new HttpError(503, 'L’assistant vendeur n’est pas encore activé sur ce serveur.');
   }
   const { messages: history, lang } = parse(ChatSchema, req.body);
@@ -332,7 +332,7 @@ assistantRouter.post('/', limiter, async (req, res) => {
     }
   } catch (error) {
     if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) {
-      console.error('[api] Assistant vendeur : clé ANTHROPIC_API_KEY refusée par l’API Claude.');
+      console.error('[api] Assistant vendeur : accès refusé par l’API Claude (vérifier la configuration, voir .env.example).');
       throw new HttpError(503, 'L’assistant vendeur n’est pas encore activé sur ce serveur.');
     }
     if (error instanceof Anthropic.RateLimitError) {

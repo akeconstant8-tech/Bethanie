@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { CITIES } from '../../src/utils/commerce.ts';
 import { currentUser, requireAuth } from '../auth.ts';
 import { db, nowIso, transaction, type Row } from '../db.ts';
-import { badRequest, conflict, forbidden, notFound, parse } from '../http.ts';
+import { badRequest, conflict, forbidden, notFound, pageQuery, parse } from '../http.ts';
 import { PRODUCT_SELECT, getProduct, loadMe, toProduct, toReview, toShop } from '../serializers.ts';
 import { PLACEHOLDER_IMAGE, saveImageDataUrl } from '../uploads.ts';
 
@@ -14,12 +14,11 @@ export const CATEGORY_IDS = ['mode', 'electronique', 'maison', 'beaute', 'alimen
 
 /* ---------- Produits (public) ---------- */
 
-const ListQuery = z.object({
+// Catalogue : 100 produits par page par défaut, 500 au plus (le site charge le catalogue en une fois).
+const ListQuery = pageQuery(100, 500).extend({
   category: z.string().max(40).optional(),
   vendor: z.string().max(100).optional(),
   q: z.string().trim().max(100).optional(),
-  limit: z.coerce.number().int().min(1).max(500).default(100),
-  offset: z.coerce.number().int().min(0).default(0),
 });
 
 catalogRouter.get('/products', async (req, res) => {
@@ -55,9 +54,18 @@ catalogRouter.get('/products/:id', async (req, res) => {
 
 /* ---------- Avis ---------- */
 
+// Avis d'un produit : 50 par page au plus.
+const ReviewsPage = pageQuery(50, 50);
+
 catalogRouter.get('/products/:id/reviews', async (req, res) => {
+  const { limit, offset } = parse(ReviewsPage, req.query);
   if (!(await getProduct(String(req.params.id)))) throw notFound('Ce produit n’est plus disponible.');
-  const rows = await db.all('SELECT * FROM reviews WHERE product_id = ? ORDER BY created_at DESC LIMIT 50', String(req.params.id));
+  const rows = await db.all(
+    'SELECT * FROM reviews WHERE product_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    String(req.params.id),
+    limit,
+    offset
+  );
   res.json({ reviews: rows.map(toReview) });
 });
 

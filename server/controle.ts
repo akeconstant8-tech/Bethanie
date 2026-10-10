@@ -11,7 +11,7 @@ import { auditReport, backfillSettlements, sealLog } from './transactions.ts';
 await backfillSettlements();
 if (process.argv.includes('--sceller')) {
   const sealed = await sealLog();
-  console.log(sealed ? `Journal : ${sealed} ligne(s) ancienne(s) scellée(s) par TRANSACTIONS_SECRET.` : 'Journal : déjà entièrement scellé.');
+  console.log(sealed ? `Journal : ${sealed} ligne(s) ancienne(s) scellée(s) avec la clé du journal.` : 'Journal : déjà entièrement scellé.');
 }
 const r = await auditReport();
 

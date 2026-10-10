@@ -4,6 +4,7 @@ import path from 'path';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { META_CSP } from './server/security-policy.js';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:4000';
 const PUBLIC_DIR = path.resolve(__dirname, 'public');
@@ -52,6 +53,24 @@ const serviceWorker = (): Plugin => ({
   },
 });
 
+/**
+ * Balise meta de la politique de sécurité (index.html) : remplie à la construction avec la politique du serveur ;
+ * retirée en développement (Vite et le rechargement à chaud injectent des scripts que la politique refuserait).
+ */
+const CSP_META = /<meta http-equiv="Content-Security-Policy" content="__BETHANIE_CSP__" \/>/;
+const contentSecurityPolicy = (): Plugin => ({
+  name: 'bethanie-content-security-policy',
+  transformIndexHtml: {
+    order: 'pre',
+    handler(html, context) {
+      if (!CSP_META.test(html)) throw new Error('index.html : balise de la politique de sécurité introuvable.');
+      return context.server
+        ? html.replace(CSP_META, '')
+        : html.replace(CSP_META, `<meta http-equiv="Content-Security-Policy" content="${META_CSP}" />`);
+    },
+  },
+});
+
 export default defineConfig({
   server: {
     port: 3000,
@@ -63,7 +82,7 @@ export default defineConfig({
     },
     watch: { ignored: ['**/server/data/**'] },
   },
-  plugins: [react(), tailwindcss(), serviceWorker()],
+  plugins: [react(), tailwindcss(), serviceWorker(), contentSecurityPolicy()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),
