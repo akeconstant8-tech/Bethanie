@@ -133,6 +133,7 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
     : product.stock <= LOW_STOCK
     ? 'bg-amber-50 text-amber-800'
     : 'bg-emerald-50 text-emerald-700';
+  const lowStock = !product.isDemo && !outOfStock && product.stock <= LOW_STOCK;
 
   const validate = () => {
     if (needsSize && !size) {
@@ -247,8 +248,13 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
               </div>
               {badges.length > 0 && (
                 <div className="absolute bottom-4 left-4 flex flex-wrap gap-1.5">
-                  {badges.map((badge) => (
-                    <span key={badge.id} className={`text-xs font-bold px-2.5 py-1 rounded-lg uppercase ${badge.className}`}>
+                  {/* Les badges se posent l'un après l'autre sur la photo. */}
+                  {badges.map((badge, i) => (
+                    <span
+                      key={badge.id}
+                      style={{ '--i': i } as React.CSSProperties}
+                      className={`badge-pop text-xs font-bold px-2.5 py-1 rounded-lg uppercase ${badge.className}`}
+                    >
                       {badgeLabel(badge, product)}
                     </span>
                   ))}
@@ -300,7 +306,7 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
                 </p>
               )}
               <h1 className="text-xl lg:text-3xl font-semibold text-slate-900 text-balance">{product.title}</h1>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+              <div className="stagger mt-2 flex flex-wrap items-center gap-1.5 text-xs">
                 <span
                   className={`font-semibold px-2 py-0.5 rounded-md ${
                     product.condition === 'occasion' ? 'bg-sky-50 text-sky-800' : 'bg-emerald-50 text-emerald-800'
@@ -341,15 +347,28 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
               </span>
               {discountPercent > 0 && (
                 <>
-                  <s className="text-sm text-slate-400 tabular-nums">{formatPrice(product.originalPrice!)}</s>
-                  <span className="text-xs font-bold bg-red-50 text-red-700 px-2 py-0.5 rounded-md">-{discountPercent}%</span>
+                  <s className="price-strike text-sm text-slate-400 tabular-nums">{formatPrice(product.originalPrice!)}</s>
+                  <span className="animate-pop text-xs font-bold bg-red-50 text-red-700 px-2 py-0.5 rounded-md">-{discountPercent}%</span>
                 </>
               )}
-              <span className={`ml-auto text-xs font-semibold px-3 py-1 rounded-full ${stockStyle}`}>{stockLabel}</span>
+              <span className={`ml-auto inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full ${stockStyle}`}>
+                {/* Stock limité : un point orange « émet » doucement. */}
+                {lowStock && (
+                  <span className="relative inline-flex w-1.5 h-1.5" aria-hidden="true">
+                    <span className="ping-soft absolute inset-0 rounded-full bg-amber-500"></span>
+                    <span className="relative w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                  </span>
+                )}
+                {stockLabel}
+              </span>
             </div>
 
             {product.isDemo && (
-              <div className="flex gap-3 rounded-2xl bg-slate-50 border border-slate-200 p-3.5 text-sm" role="note">
+              <div
+                className="animate-rise-in flex gap-3 rounded-2xl bg-slate-50 border border-slate-200 p-3.5 text-sm"
+                style={{ '--delay': '180ms' } as React.CSSProperties}
+                role="note"
+              >
                 <i className="fa-solid fa-circle-info text-slate-500 mt-0.5" aria-hidden="true"></i>
                 <p className="text-slate-600">
                   <strong className="block text-slate-800">{t('product.demo.title')}</strong>
@@ -483,7 +502,8 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
                 <section className="rounded-2xl border border-slate-200/70 bg-white p-3.5 space-y-2.5" aria-labelledby="product-delivery">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h2 id="product-delivery" className="text-sm font-semibold text-slate-900">
-                      <i className="fa-solid fa-truck-fast text-brand-900 mr-2" aria-hidden="true"></i>
+                      {/* Le camion repart quand la ville ou la quantité change. */}
+                      <i key={`${city}-${quantity}`} className="truck-drive fa-solid fa-truck-fast text-brand-900 mr-2" aria-hidden="true"></i>
                       {t('product.delivery.title')}
                     </h2>
                     <label className="flex items-center gap-2 text-xs text-slate-500">
@@ -501,7 +521,7 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
                       </select>
                     </label>
                   </div>
-                  <ul className="divide-y divide-slate-100 text-xs">
+                  <ul className="stagger divide-y divide-slate-100 text-xs">
                     {DELIVERY_METHODS.map((m) => {
                       const unavailable = m.id === 'express' && city !== 'Abidjan';
                       const fee = getDeliveryFee(m.id, city, lineTotal);
@@ -512,7 +532,11 @@ export const ProductDetailScreen: React.FC<ProductDetailScreenProps> = ({
                             <span className="block font-semibold text-slate-800">{t(`delivery.${m.id}.label` as TranslationKey)}</span>
                             <span className="block text-slate-500">{t(`delivery.${m.id}.description` as TranslationKey)}</span>
                           </span>
-                          <span className="font-semibold text-slate-800 tabular-nums whitespace-nowrap">
+                          {/* Nouveaux frais : le montant « se pose ». */}
+                          <span
+                            key={`${city}-${fee}`}
+                            className="fee-pop font-semibold text-slate-800 tabular-nums whitespace-nowrap"
+                          >
                             {unavailable ? '—' : fee === 0 ? t('common.free') : formatPrice(fee)}
                           </span>
                         </li>

@@ -129,12 +129,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFavorite, o
         {(product.isDemo || product.condition === 'occasion') && (
           <div className="absolute bottom-2 left-2 flex gap-1">
             {product.isDemo && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-white/90 text-slate-600 ring-1 ring-slate-200">
+              <span className="card-badge text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-white/90 text-slate-600 ring-1 ring-slate-200">
                 {t('badge.demo')}
               </span>
             )}
             {product.condition === 'occasion' && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-sky-600 text-white">{t('badge.used')}</span>
+              <span className="card-badge text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-sky-600 text-white">{t('badge.used')}</span>
             )}
           </div>
         )}
@@ -150,7 +150,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFavorite, o
         <div className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5">
           <p className="text-sm sm:text-base font-semibold text-brand-900 tabular-nums leading-tight">{formatPrice(product.price)}</p>
           {discountPercent(product) > 0 && (
-            <s className="text-[11px] text-slate-400 tabular-nums">{formatPrice(product.originalPrice!)}</s>
+            // Le trait se trace sur l'ancien prix juste après l'entrée de la carte (index.css, price-strike).
+            <s className="price-strike text-[11px] text-slate-400 tabular-nums">{formatPrice(product.originalPrice!)}</s>
           )}
         </div>
         {!product.isDemo && (product.reviewsCount > 0 || product.soldCount) && (
@@ -206,10 +207,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFavorite, o
               e.stopPropagation();
               open();
             }}
-            className="h-8 px-2 rounded-xl text-xs font-semibold text-brand-900 hover:bg-brand-50 cursor-pointer transition-colors"
+            className="group/view h-8 px-2 rounded-xl text-xs font-semibold text-brand-900 hover:bg-brand-50 inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
             aria-label={t('card.viewProductNamed', { title: product.title })}
           >
             {t('card.viewProduct')}
+            {/* La flèche avance au survol. */}
+            <i
+              className="fa-solid fa-arrow-right text-[10px] transition-transform duration-200 ease-out group-hover/view:translate-x-0.5"
+              aria-hidden="true"
+            ></i>
           </button>
         </div>
       </div>

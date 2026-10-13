@@ -10,28 +10,39 @@ const CHOICES: { id: MotionPreference; icon: string }[] = [
 ];
 
 /**
- * Ligne « Animations » du Profil et son panneau de choix.
- * « Automatique » suit le réglage de l'appareil ; « Toujours » montre les animations même si l'appareil
- * demande de les réduire (Windows : Effets d'animation désactivés) ; « Réduites » les coupe.
+ * Ligne « Animations » du Profil (ou petit lien du pied de page et de l'écran de connexion, `variant="link"`) et son
+ * panneau de choix. « Automatique » suit le réglage de l'appareil (fondus doux s'il demande moins d'animations) ;
+ * « Toujours » montre toutes les animations même si l'appareil demande de les réduire (Windows : Effets d'animation
+ * désactivés) ; « Réduites » les coupe.
  */
-export const MotionSetting: React.FC = () => {
+export const MotionSetting: React.FC<{ variant?: 'row' | 'link'; className?: string }> = ({ variant = 'row', className = '' }) => {
   const { t } = useI18n();
   const preference = useMotionPreference();
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="group w-full flex items-center gap-3.5 px-4 py-3 text-left hover:bg-surface-light transition-colors cursor-pointer"
-      >
-        <span className="w-9 h-9 rounded-xl bg-brand-50 text-brand-900 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-110">
-          <i className="fa-solid fa-wand-magic-sparkles text-sm"></i>
-        </span>
-        <span className="flex-1 text-sm font-medium text-slate-800">{t('motion.label')}</span>
-        <span className="text-xs font-semibold text-brand-700 bg-brand-50 px-2.5 py-1 rounded-full">{t(`motion.${preference}`)}</span>
-        <i className="fa-solid fa-chevron-right text-xs text-slate-300 transition-transform duration-200 group-hover:translate-x-0.5"></i>
-      </button>
+      {variant === 'link' ? (
+        <button
+          onClick={() => setOpen(true)}
+          className={`group inline-flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-colors ${className}`}
+        >
+          <i className="fa-solid fa-wand-magic-sparkles transition-transform duration-200 group-hover:rotate-12" aria-hidden="true"></i>
+          {t('motion.link', { value: t(`motion.${preference}`) })}
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="group w-full flex items-center gap-3.5 px-4 py-3 text-left hover:bg-surface-light transition-colors cursor-pointer"
+        >
+          <span className="w-9 h-9 rounded-xl bg-brand-50 text-brand-900 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-110">
+            <i className="fa-solid fa-wand-magic-sparkles text-sm"></i>
+          </span>
+          <span className="flex-1 text-sm font-medium text-slate-800">{t('motion.label')}</span>
+          <span className="text-xs font-semibold text-brand-700 bg-brand-50 px-2.5 py-1 rounded-full">{t(`motion.${preference}`)}</span>
+          <i className="fa-solid fa-chevron-right text-xs text-slate-300 transition-transform duration-200 group-hover:translate-x-0.5"></i>
+        </button>
+      )}
 
       <BottomSheet open={open} title={t('motion.label')} onClose={() => setOpen(false)}>
         <div role="radiogroup" aria-label={t('motion.label')} className="space-y-2.5">

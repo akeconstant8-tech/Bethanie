@@ -4,6 +4,7 @@ import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { btnPrimary } from '../components/ui';
 import { useI18n } from '../i18n';
 import { errorMessage } from '../api/client';
+import { MotionSetting } from '../components/MotionSetting';
 
 interface AuthScreenProps {
   /** Pourquoi on demande la connexion (ex : « pour finaliser votre commande »). */
@@ -87,6 +88,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ reason, onGoogleAuth, on
               privacy: <strong className="font-semibold text-brand-900">{t('auth.privacy')}</strong>,
             })}
           </p>
+          {/* Réglage des animations, utilisable sans compte. */}
+          <div className="mt-6 flex justify-center">
+            <MotionSetting variant="link" className="text-slate-500 hover:text-brand-900" />
+          </div>
         </div>
       </div>
     </div>

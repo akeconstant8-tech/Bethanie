@@ -1,6 +1,6 @@
 import type React from 'react';
-import { useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
-import { prefersReducedMotion } from '../pwa/pwa';
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
+import { motionLevel, prefersReducedMotion } from '../pwa/pwa';
 
 /* ------------------------------------------------------------------ */
 /* Transitions entre écrans (API View Transitions)                    */
@@ -159,17 +159,114 @@ const entrance = () =>
 
 /**
  * Fait monter un élément (carte produit) quand il entre dans l'écran, en cascade avec ceux qui entrent en même
- * temps. Avant l'affichage (useLayoutEffect) pour éviter un clignotement ; sans effet si les animations sont réduites.
+ * temps. Avant l'affichage (useLayoutEffect) pour éviter un clignotement ; sans effet avec le choix « Réduites ».
  */
 export const useEntrance = (ref: React.RefObject<HTMLElement | null>) => {
   useLayoutEffect(() => {
     const element = ref.current;
-    if (!element || element.dataset.enter === 'in' || prefersReducedMotion() || !('IntersectionObserver' in window)) return;
+    // En mouvement doux, la carte apparaît en fondu au lieu de monter (index.css).
+    if (!element || element.dataset.enter === 'in' || motionLevel() === 'none' || !('IntersectionObserver' in window)) return;
     element.dataset.enter = 'wait';
     const observer = entrance();
     observer.observe(element);
     return () => observer.unobserve(element);
   }, [ref]);
+};
+
+/* ------------------------------------------------------------------ */
+/* Grille qui se réorganise (tri, filtres du catalogue)                */
+/* ------------------------------------------------------------------ */
+
+type Point = { x: number; y: number };
+
+/** Place d'un élément dans la page sans tenir compte des animations en cours (offsetLeft/offsetTop ignorent transform). */
+const layoutPosition = (element: HTMLElement): Point => {
+  let x = 0;
+  let y = 0;
+  for (let node: HTMLElement | null = element; node; node = node.offsetParent as HTMLElement | null) {
+    x += node.offsetLeft;
+    y += node.offsetTop;
+  }
+  return { x, y };
+};
+
+/**
+ * À chaque changement de contenu (`layoutKey` : tri, filtre, article retiré…), les enfants de `container` marqués
+ * `data-flip-id` glissent de leur ancienne place à la nouvelle (technique « FLIP » : transform seulement, aucun recalcul
+ * de la page). Places mesurées par rapport au conteneur : deux listes imbriquées (boutiques et articles du panier)
+ * peuvent chacune avoir leur propre `useFlip` sans que les mouvements s'additionnent. Un élément qui arrive de loin (plus
+ * d'un écran) apparaît en fondu ; les nouveaux venus gardent leur entrée habituelle. Mouvement doux : fondu seulement.
+ */
+export const useFlip = (container: React.RefObject<HTMLElement | null>, layoutKey: string) => {
+  const positions = useRef(new Map<string, Point>());
+
+  // Fenêtre redimensionnée : les anciennes places ne veulent plus rien dire.
+  useEffect(() => {
+    const forget = () => positions.current.clear();
+    window.addEventListener('resize', forget);
+    return () => window.removeEventListener('resize', forget);
+  }, []);
+
+  useLayoutEffect(() => {
+    const root = container.current;
+    if (!root) return;
+    const previous = positions.current;
+    const next = new Map<string, Point>();
+    const level = motionLevel();
+    // Places mesurées hors animations (une entrée en cours fausserait la mesure), par rapport au conteneur.
+    const origin = layoutPosition(root);
+    const viewport = window.innerHeight;
+    for (const element of root.querySelectorAll<HTMLElement>(':scope > [data-flip-id]')) {
+      const rect = element.getBoundingClientRect();
+      const own = layoutPosition(element);
+      const place = { x: own.x - origin.x, y: own.y - origin.y };
+      next.set(element.dataset.flipId!, place);
+      const before = previous.get(element.dataset.flipId!);
+      if (level === 'none' || !before || typeof element.animate !== 'function') continue;
+      if (rect.bottom < 0 || rect.top > viewport) continue; // nouvelle place hors de l'écran : rien à montrer
+      const dx = before.x - place.x;
+      const dy = before.y - place.y;
+      if (Math.abs(dx) < 2 && Math.abs(dy) < 2) continue; // arrondis au pixel près : pas un vrai déplacement
+      if (level === 'soft' || Math.abs(dy) > viewport) {
+        element.animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: 260, easing: 'ease-out' });
+      } else {
+        element.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], {
+          duration: 420,
+          easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+        });
+      }
+    }
+    positions.current = next;
+  }, [container, layoutKey]);
+};
+
+/**
+ * Fait sortir un élément avant de le retirer (article du panier…) : il glisse sur le côté en s'effaçant, puis `done`
+ * est appelé. Immédiat avec le choix « Réduites » ; simple fondu en mouvement doux.
+ */
+export const exitThen = (element: HTMLElement | null, done: () => void) => {
+  const level = motionLevel();
+  if (!element || level === 'none' || typeof element.animate !== 'function') {
+    done();
+    return;
+  }
+  const frames =
+    level === 'soft'
+      ? [{ opacity: 1 }, { opacity: 0 }]
+      : [
+          { opacity: 1, transform: 'none' },
+          { opacity: 0, transform: 'translateX(-24px) scale(0.97)' },
+        ];
+  element.style.pointerEvents = 'none';
+  const animation = element.animate(frames, { duration: 240, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' });
+  let called = false;
+  const finish = () => {
+    if (called) return;
+    called = true;
+    done();
+  };
+  animation.finished.then(finish, finish);
+  window.setTimeout(finish, 400); // onglet en arrière-plan : on n'attend pas
 };
 
 /* ------------------------------------------------------------------ */

@@ -295,6 +295,9 @@ toutes désactivées quand le téléphone ou l’ordinateur demande de réduire 
 | MOT-26 | Catalogue : nombre de résultats et recherche active qui se posent à chaque changement | P3 | ✅ |
 | MOT-27 | Pied de page : colonnes qui apparaissent au défilement, liens animés au survol | P3 | ✅ |
 | MOT-28 | Vidéo de présentation en motion design sur l’accueil (lecture en grand au toucher, téléchargée seulement à la demande) ; version verticale pour WhatsApp et les réseaux sociaux | P2 | ✅ |
+| MOT-29 | Catalogue animé : rubriques de l’accueil qui glissent (flèche « faites glisser » sur téléphone), cartes qui rejoignent leur nouvelle place au tri et aux filtres, sélecteur « État » à pastille glissante, badges, prix barré, stock limité et frais de livraison animés sur la fiche ; tout est coupé avec le réglage « Réduites » ou le mouvement réduit de l’appareil | P3 | ✅ |
+| MOT-30 | Mouvement doux : sur un appareil qui demande moins d’animations (réglage « Automatique »), fondus courts sans déplacement au lieu d’aucune animation ; réglage « Animations » accessible sans connexion (pied de page, écran Profil d’un visiteur) ; vitesses et courbes communes à tout le site | P2 | ✅ |
+| MOT-31 | Panier animé : article retiré qui sort en glissant, liste qui se resserre, sous-total et total qui défilent, jauge « livraison offerte » qui se remplit | P3 | ✅ |
 
 > **Réduire les animations** : sous Windows, ce réglage est activé quand **Paramètres › Accessibilité › Effets
 > visuels › Effets d’animation** est désactivé. Le navigateur le transmet au site, qui coupe alors toutes les
@@ -493,7 +496,7 @@ son propre statut et son propre livreur.
 | Catégories | Une illustration par catégorie (objets sur fond de cercle pastel et socle doré), toujours accompagnée de son nom |
 | Moyens de paiement | Pastilles aux couleurs de chaque opérateur ; les logos officiels ne sont utilisés qu’avec l’accord des opérateurs **[À valider]** |
 | Bannière d’accueil | Photo de produits (mode, électroménager, high-tech, épices) sur fond vert ; titre blanc et or, bouton or « Découvrir », bouton contour « Commencer à vendre » |
-| Contact affiché | E-mail `contact@bethanie.ci` et téléphone dans le pied de page ; aucun numéro WhatsApp (voir D11) |
+| Contact affiché | E-mail `contact@bethanie.ci` et téléphone +225 07 87 67 58 86 (cliquable pour appeler) dans le pied de page ; aucun numéro WhatsApp (voir D11) |
 
 ---
 
@@ -554,7 +557,7 @@ Les durées de chaque lot sont à estimer une fois les décisions de la section 
 | D8 | Décision : Google uniquement pour la connexion et la création de compte de cette version ; la connexion par téléphone/SMS est reportée | CPT-10 réalisé sous réserve de configuration, CPT-11 reporté |
 | D9 | Photos et illustrations définitives : droits d’utilisation des illustrations de catégories et de la bannière fournies, photos officielles pour l’accueil et les écrans de présentation, versions haute définition | UX-02, UX-06, UX-07 |
 | D10 | Contenu de l’entrée « Notifications » du profil (commandes, promotions, messages des vendeurs) et canal (SMS, WhatsApp, notification du téléphone) | UX-12, CMD-09 |
-| D11 | Numéro de contact officiel : le numéro WhatsApp a été retiré de l’interface ; faut-il un numéro WhatsApp Business, et le téléphone du pied de page est-il le bon ? | UX-12, pied de page |
+| D11 | Numéro de contact officiel : +225 07 87 67 58 86, fourni par le porteur de projet le 13 octobre 2026 (pied de page). Reste à décider : faut-il aussi un numéro WhatsApp Business ? | UX-12, pied de page |
 | D12 | Traduction des fiches produit : saisie bilingue par le vendeur, traduction automatique proposée, ou français seulement | LNG-05 |
 
 ---

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { OrderStatus } from '../types';
 import { useI18n } from '../i18n';
-import { prefersReducedMotion } from '../pwa/pwa';
+import { motionLevel, prefersReducedMotion } from '../pwa/pwa';
 import { STATUS_STYLES } from '../utils/commerce';
 
 /* ------------------------------------------------------------------ */
@@ -33,7 +33,8 @@ export const useReveal = <T extends HTMLElement = HTMLElement>(delay = 0) => {
 
   useEffect(() => {
     const element = ref.current;
-    if (!element || !('IntersectionObserver' in window) || prefersReducedMotion()) {
+    // Mouvement doux : la section apparaît quand même en fondu (index.css) ; « Réduites » : tout de suite.
+    if (!element || !('IntersectionObserver' in window) || motionLevel() === 'none') {
       setShown(true);
       return;
     }

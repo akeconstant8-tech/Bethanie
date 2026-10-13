@@ -163,3 +163,10 @@ export const prefersReducedMotion = () => {
   if (choice === 'off') return true;
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 };
+
+/**
+ * Niveau de mouvement : « full » (animations complètes), « soft » (réglage Automatique sur un appareil qui demande moins
+ * d'animations : fondus courts seulement, voir index.css) ou « none » (choix « Réduites » : rien ne bouge).
+ */
+export const motionLevel = (): 'full' | 'soft' | 'none' =>
+  document.documentElement.dataset.motion === 'off' ? 'none' : prefersReducedMotion() ? 'soft' : 'full';

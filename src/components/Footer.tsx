@@ -3,6 +3,7 @@ import { NavigateParams, ScreenType } from '../types';
 import { useI18n } from '../i18n';
 import { BethanieLogo } from './BethanieLogo';
 import { useReveal } from './ui';
+import { MotionSetting } from './MotionSetting';
 
 interface FooterProps {
   onNavigate: (screen: ScreenType, params?: NavigateParams) => void;
@@ -82,8 +83,11 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           <div {...column(3)}>
             <h4 className="text-white text-xs font-semibold uppercase tracking-wider mb-4">{t('footer.contact')}</h4>
             <ul className="space-y-3">
-              <li className="flex gap-2.5">
-                <i className="fa-solid fa-phone text-gold-400 mt-1 text-xs"></i>+225 07 07 07 07
+              <li>
+                {/* Numéro de contact officiel (fourni par le porteur de projet le 13 octobre 2026). */}
+                <a href="tel:+2250787675886" className="flex gap-2.5 hover:text-white transition-colors">
+                  <i className="fa-solid fa-phone text-gold-400 mt-1 text-xs"></i>+225 07 87 67 58 86
+                </a>
               </li>
               <li className="flex gap-2.5">
                 <i className="fa-solid fa-envelope text-gold-400 mt-1 text-xs"></i>contact@bethanie.ci
@@ -100,7 +104,11 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
         </div>
 
         <div className="pt-6 border-t border-white/10 flex items-center justify-between text-xs text-white/50">
-          <p>{t('footer.rights')}</p>
+          <p className="flex items-center gap-5">
+            {t('footer.rights')}
+            {/* Réglage des animations, sans avoir à se connecter. */}
+            <MotionSetting variant="link" className="text-white/60 hover:text-white" />
+          </p>
           <p className="flex items-center gap-2">
             <i className="fa-solid fa-shield-halved text-gold-400"></i>
             {t('footer.payments')}

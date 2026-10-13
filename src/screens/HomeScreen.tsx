@@ -43,6 +43,8 @@ interface ShelfProps {
   onToggleWishlist: (productId: string) => void;
   /** Texte affiché à la place des produits quand la rangée est vide. */
   empty?: string;
+  /** Change quand le contenu de la rangée change (ville) : les cartes glissent à nouveau. */
+  railKey?: string;
 }
 
 /** Rangée de produits : défilement horizontal sur téléphone, grille sur ordinateur, « Voir tout » vers le catalogue. */
@@ -58,6 +60,7 @@ const ProductShelf: React.FC<ShelfProps> = ({
   onAddToCart,
   onToggleWishlist,
   empty,
+  railKey,
 }) => {
   const reveal = useReveal<HTMLElement>();
   return (
@@ -65,7 +68,7 @@ const ProductShelf: React.FC<ShelfProps> = ({
       <SectionHeader
         title={
           <span id={id} className="block">
-            {title}
+            <span className="shelf-title">{title}</span>
             {hint && <span className="block text-xs lg:text-sm font-normal text-slate-500 mt-0.5">{hint}</span>}
           </span>
         }
@@ -74,23 +77,40 @@ const ProductShelf: React.FC<ShelfProps> = ({
       {products.length === 0 && empty ? (
         <p className="text-sm text-slate-500 bg-white rounded-2xl border border-slate-200/70 p-4">{empty}</p>
       ) : (
-        <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory -mx-4 px-4 pb-1 lg:grid lg:grid-cols-5 lg:gap-5 lg:overflow-visible lg:mx-0 lg:px-0 lg:pb-0">
-          {products.map((product, i) => (
-            <div
-              key={product.id}
-              className={`w-[46%] sm:w-[31%] shrink-0 snap-start flex lg:w-auto ${i >= desktopCount ? 'lg:hidden' : ''}`}
-            >
-              <div className="w-full flex flex-col [&>article]:flex-1">
-                <ProductCard
-                  product={product}
-                  isFavorite={wishlist.includes(product.id)}
-                  onOpen={onOpenProduct}
-                  onAddToCart={onAddToCart}
-                  onToggleWishlist={onToggleWishlist}
-                />
+        // Sur téléphone, les cartes glissent depuis la droite ; une flèche invite à faire défiler la rangée.
+        <div className="relative">
+          <div
+            key={railKey}
+            onScroll={(e) => {
+              if (e.currentTarget.scrollLeft > 24) e.currentTarget.parentElement!.dataset.scrolled = 'true';
+            }}
+            className="shelf-rail flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-px-4 -mx-4 px-4 pb-1 lg:grid lg:grid-cols-5 lg:gap-5 lg:overflow-visible lg:mx-0 lg:px-0 lg:pb-0"
+          >
+            {products.map((product, i) => (
+              <div
+                key={product.id}
+                className={`w-[46%] sm:w-[31%] shrink-0 snap-start flex lg:w-auto ${i >= desktopCount ? 'lg:hidden' : ''}`}
+              >
+                <div className="w-full flex flex-col [&>article]:flex-1">
+                  <ProductCard
+                    product={product}
+                    isFavorite={wishlist.includes(product.id)}
+                    onOpen={onOpenProduct}
+                    onAddToCart={onAddToCart}
+                    onToggleWishlist={onToggleWishlist}
+                  />
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+          {products.length > 2 && (
+            <span
+              aria-hidden="true"
+              className="swipe-hint lg:hidden pointer-events-none absolute -right-1 top-[30%] w-8 h-8 rounded-full bg-white/95 shadow-lift text-brand-900 flex items-center justify-center"
+            >
+              <i className="fa-solid fa-chevron-right text-xs"></i>
+            </span>
+          )}
         </div>
       )}
     </section>
@@ -448,6 +468,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </span>
           }
           products={shelves.nearby}
+          railKey={city}
           onSeeAll={seeAll('proches', { city })}
           empty={t('home.nearbyEmpty', { city })}
           {...shelfProps}

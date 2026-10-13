@@ -15,10 +15,16 @@ Béthanie anime son interface sans bibliothèque : keyframes et classes dans `sr
 2. **Durées** : 150–250 ms pour un retour au toucher, 300–500 ms pour une entrée, 600 ms à 1,6 s seulement pour la
    bannière d'accueil. Courbes : `var(--ease-out-soft)` (entrées), `var(--ease-spring)` (rebonds), `ease-in` (sorties).
 3. **Jamais bloquant** : l'utilisateur peut toujours toucher, faire défiler, revenir en arrière pendant une animation.
-4. **Accessibilité** : le bloc « Accessibilité » en fin de `index.css` coupe toutes les animations CSS quand l'appareil
-   demande moins d'animations, **sauf** si le Profil dit « Toujours activées » (`<html data-motion="on">`), et les coupe
-   toujours avec « Réduites » (`data-motion="off"`). Une animation déclenchée en JavaScript doit tester
-   `prefersReducedMotion()` (`src/pwa/pwa.ts`), qui tient compte de ce réglage.
+4. **Accessibilité, trois niveaux** (`motionLevel()`, `src/pwa/pwa.ts`) :
+   - **complet** : réglage « Toujours activées » (`<html data-motion="on">`), ou « Automatique » sur un appareil normal ;
+   - **doux** : « Automatique » (pas d'attribut `data-motion`) sur un appareil qui demande moins d'animations. Le bloc
+     « Accessibilité » de `index.css` coupe tout, puis rétablit des fondus courts sans déplacement (`soft-fade`) pour
+     les sections, cartes, listes, panneaux et écrans. Une nouvelle entrée doit y être ajoutée si elle doit rester
+     visible en fondu ;
+   - **aucun** : « Réduites » (`data-motion="off"`).
+
+   En JavaScript, `prefersReducedMotion()` est vrai en doux et en aucun : il réserve les effets de mouvement (vol vers
+   le panier, inclinaison…). Pour savoir s'il faut au moins un fondu, utiliser `motionLevel()`.
 5. **Pas d'effet persistant sur un conteneur** : une animation `both`/`forwards` sur `transform` ou `opacity` crée un
    contexte d'empilement durable ; les éléments `fixed` à l'intérieur (panneaux, barres) passent alors sous la barre
    d'onglets. Pour un conteneur, utiliser `backwards` (c'est le cas de `stagger` et de `screen-fade`).
@@ -47,6 +53,13 @@ Béthanie anime son interface sans bibliothèque : keyframes et classes dans `sr
 | Recherche animée | `useTypewriterPlaceholder(ref, base, exemples, modèle)` (aucun rendu React) | `utils/motion.ts` |
 | Suivi de commande | `DeliveryRoute` (camion `truck-bob`, `ping-soft`, segments `grow-y`) | `TrackingScreen.tsx` |
 | Bannière | `hero-photo` (zoom + parallaxe CSS `animation-timeline: view()`), `hero-word`, `hero-highlight`, `shine-loop` | `HomeScreen.tsx` |
+| Vitesses et courbes communes | `--motion-fast` (180 ms), `--motion-base` (320 ms), `--motion-slow` (520 ms) ; `--ease-out-soft`, `--ease-spring`, `--ease-exit` | `index.css` (`@theme`) |
+| Grille ou liste qui se réorganise (tri, filtres, article retiré) | `useFlip(ref, clé)` ; chaque enfant porte `data-flip-id` ; listes imbriquées : un `useFlip` par liste (places relatives au conteneur) | `utils/motion.ts`, `CatalogScreen.tsx`, `CartScreen.tsx` (`FlipList`) |
+| Sortie d'un élément avant de le retirer | `exitThen(élément, () => retirer())` | `utils/motion.ts`, `CartScreen.tsx` |
+| Jauge | classe `progress-fill` + `--progress` (0 à 1), transform seulement | `index.css`, `CartScreen.tsx` |
+| Rangée qui défile (téléphone) | classe `shelf-rail` (cartes qui glissent), titre `shelf-title` (trait doré), indice `swipe-hint` effacé par `data-scrolled` ; `key` qui change pour relancer l'entrée | `index.css`, `HomeScreen.tsx` |
+| Sélecteur à pastille glissante | `segmented-pill` + `translate` en pourcentage | `CatalogScreen.tsx` |
+| Prix barré, badges, valeurs qui changent | `price-strike` sur `<s>` ; `badge-pop` (+ `--i`) ; `fee-pop`, `truck-drive` avec une `key` qui change | `index.css`, `ProductDetailScreen.tsx` |
 
 ## 3. Ajouter une animation, pas à pas
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { CartItem, NavigateParams, Product, ScreenType } from '../types';
 import { ProductCard } from '../components/ProductCard';
 import {
@@ -24,6 +24,25 @@ import {
   formatPrice,
   getDeliveryFee,
 } from '../utils/commerce';
+import { exitThen, useFlip } from '../utils/motion';
+
+/** Clé d'une ligne du panier (produit, couleur, taille). */
+const lineKey = (item: CartItem) => `${item.product.id}-${item.selectedColor}-${item.selectedSize}`;
+
+/** Liste qui se resserre en douceur quand une ligne disparaît (useFlip). */
+const FlipList: React.FC<{ layoutKey: string; className: string; children: React.ReactNode }> = ({
+  layoutKey,
+  className,
+  children,
+}) => {
+  const ref = useRef<HTMLUListElement>(null);
+  useFlip(ref, layoutKey);
+  return (
+    <ul ref={ref} className={className}>
+      {children}
+    </ul>
+  );
+};
 
 interface CartScreenProps {
   cart: CartItem[];
@@ -89,6 +108,12 @@ export const CartScreen: React.FC<CartScreenProps> = ({
   );
 
   const cartIds = new Set(cart.map((i) => i.product.id));
+  // Article retiré ou mis en favori : il glisse hors de la liste, puis boutiques et articles se resserrent.
+  const layoutKey = useMemo(() => cart.map(lineKey).join('|'), [cart]);
+  const column = useRef<HTMLDivElement>(null);
+  useFlip(column, layoutKey);
+  const leave = (event: React.MouseEvent<HTMLElement>, action: () => void) =>
+    exitThen(event.currentTarget.closest('li'), action);
   const suggestions = products.filter((p) => !cartIds.has(p.id) && p.stock > 0).slice(0, 4);
 
   const applyPromo = (e: React.FormEvent) => {
@@ -182,7 +207,7 @@ export const CartScreen: React.FC<CartScreenProps> = ({
         />
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_24rem] gap-4 lg:gap-8 items-start">
-          <div className="space-y-4 stagger">
+          <div ref={column} className="space-y-4 stagger">
             {subtotal < FREE_DELIVERY_THRESHOLD ? (
               <div className={`${cardClass} p-4`}>
                 <p className="text-xs text-slate-600">
@@ -192,21 +217,22 @@ export const CartScreen: React.FC<CartScreenProps> = ({
                   })}
                 </p>
                 <div className="h-1.5 bg-slate-100 rounded-full mt-2.5 overflow-hidden">
+                  {/* La jauge se remplit (transform seulement, sans recalcul de la page). */}
                   <div
-                    className="h-full bg-linear-to-r from-gold-400 to-gold-500 rounded-full transition-[width] duration-500 ease-out animate-grow-x"
-                    style={{ width: `${Math.min(100, (subtotal / FREE_DELIVERY_THRESHOLD) * 100)}%` }}
+                    className="progress-fill h-full bg-linear-to-r from-gold-400 to-gold-500 rounded-full"
+                    style={{ '--progress': Math.min(1, subtotal / FREE_DELIVERY_THRESHOLD) } as React.CSSProperties}
                   ></div>
                 </div>
               </div>
             ) : (
-              <p className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl p-4 text-xs font-semibold">
-                <i className="fa-solid fa-gift mr-2"></i>
+              <p className="animate-scale-in bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl p-4 text-xs font-semibold">
+                <i className="fa-solid fa-gift mr-2 inline-block animate-wiggle"></i>
                 {t('cart.freeDelivery')}
               </p>
             )}
 
             {Object.entries(groups).map(([vendorId, group]) => (
-              <section key={vendorId} className={`${cardClass} overflow-hidden`}>
+              <section key={vendorId} data-flip-id={vendorId} className={`${cardClass} overflow-hidden`}>
                 <button
                   onClick={() => onNavigate('catalog', { vendor: vendorId, category: 'all' })}
                   className="w-full px-4 pt-3.5 pb-1 text-left text-xs font-semibold text-slate-500 hover:text-brand-900 cursor-pointer"
@@ -214,9 +240,9 @@ export const CartScreen: React.FC<CartScreenProps> = ({
                   <i className="fa-solid fa-store text-brand-700 mr-1.5"></i>
                   {group.vendorName}
                 </button>
-                <ul className="divide-y divide-slate-100">
+                <FlipList layoutKey={layoutKey} className="divide-y divide-slate-100">
                   {group.lines.map(({ item, index }) => (
-                    <li key={`${item.product.id}-${item.selectedColor}-${item.selectedSize}`} className="p-4 flex gap-3.5">
+                    <li key={lineKey(item)} data-flip-id={lineKey(item)} className="p-4 flex gap-3.5 bg-white">
                       <button
                         onClick={() => onOpenProduct(item.product)}
                         className="w-20 h-20 lg:w-24 lg:h-24 rounded-xl bg-cream overflow-hidden shrink-0 cursor-pointer"
@@ -241,7 +267,7 @@ export const CartScreen: React.FC<CartScreenProps> = ({
                           </div>
                           <div className="flex -mr-2 -mt-1.5 shrink-0">
                             <button
-                              onClick={() => onSaveForLater(index)}
+                              onClick={(e) => leave(e, () => onSaveForLater(index))}
                               className="w-9 h-9 rounded-full text-slate-400 hover:text-brand-900 hover:bg-slate-50 cursor-pointer"
                               aria-label={t('cart.saveForLater')}
                               title={t('cart.saveForLater')}
@@ -249,7 +275,7 @@ export const CartScreen: React.FC<CartScreenProps> = ({
                               <i className="fa-regular fa-heart"></i>
                             </button>
                             <button
-                              onClick={() => onRemove(index)}
+                              onClick={(e) => leave(e, () => onRemove(index))}
                               className="w-9 h-9 rounded-full text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
                               aria-label={t('common.delete')}
                               title={t('common.delete')}
@@ -284,7 +310,7 @@ export const CartScreen: React.FC<CartScreenProps> = ({
                       </div>
                     </li>
                   ))}
-                </ul>
+                </FlipList>
               </section>
             ))}
           </div>
@@ -343,7 +369,9 @@ export const CartScreen: React.FC<CartScreenProps> = ({
               <dl className="space-y-2.5 text-sm">
                 <div className="flex justify-between">
                   <dt className="text-slate-600">{t('common.subtotal')}</dt>
-                  <dd className="font-medium tabular-nums">{formatPrice(subtotal)}</dd>
+                  <dd className="font-medium tabular-nums">
+                    <CountUp value={subtotal} format={formatPrice} duration={450} animateOnMount={false} />
+                  </dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-slate-600">

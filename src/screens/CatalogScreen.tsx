@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { CatalogView, NavigateParams, Product, ProductCondition, ScreenType } from '../types';
 import { INITIAL_CATEGORIES } from '../data/mockData';
 import { ProductCard, discountPercent } from '../components/ProductCard';
 import { BottomSheet, EmptyState, MobileHeader, btnOutline, btnPrimary, cardClass } from '../components/ui';
 import { TranslationKey, useI18n } from '../i18n';
 import { CITIES, cityOf, formatPrice } from '../utils/commerce';
+import { useFlip } from '../utils/motion';
 
 interface CatalogScreenProps {
   products: Product[];
@@ -38,6 +39,8 @@ const VIEW_SORT: Partial<Record<CatalogView, Sort>> = {
 
 /** Recherche sans tenir compte des accents ni des majuscules (« telephone » trouve « Téléphone »). */
 const fold = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+const CONDITIONS = ['all', 'neuf', 'occasion'] as const;
 
 const chip = (active: boolean) =>
   `h-9 px-3.5 rounded-full text-sm font-medium border cursor-pointer transition-colors ${
@@ -180,6 +183,9 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
   const title =
     vendorName ?? viewTitle ?? (selectedCategory === 'all' ? t('catalog.allProducts') : categoryName(selectedCategory));
   const count = tn('common.productCount', filteredProducts.length);
+  // Tri ou filtre : les cartes déjà à l'écran glissent jusqu'à leur nouvelle place.
+  const grid = useRef<HTMLDivElement>(null);
+  useFlip(grid, useMemo(() => filteredProducts.map((p) => p.id).join('|'), [filteredProducts]));
 
   const clearSearch = () => {
     onSearchChange?.('');
@@ -187,7 +193,8 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
   };
 
   const filterControls = (
-    <div className="space-y-7">
+    // Les rubriques des filtres montent l'une après l'autre à l'ouverture du panneau.
+    <div className="stagger space-y-7">
       <div className="space-y-4">
         <div>
           <div className="flex items-center justify-between text-sm mb-2">
@@ -253,9 +260,23 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
 
       <div>
         <p className="text-sm font-semibold text-slate-900 mb-3">{t('catalog.condition')}</p>
-        <div className="flex flex-wrap gap-2">
-          {(['all', 'neuf', 'occasion'] as const).map((id) => (
-            <button key={id} onClick={() => setCondition(id)} aria-pressed={condition === id} className={chip(condition === id)}>
+        {/* La pastille verte glisse jusqu'au choix (comme l'indicateur de la barre d'onglets). */}
+        <div role="radiogroup" aria-label={t('catalog.condition')} className="relative grid grid-cols-3 p-1 rounded-full bg-slate-100">
+          <span
+            aria-hidden="true"
+            className="segmented-pill absolute top-1 bottom-1 left-1 w-[calc((100%-0.5rem)/3)] rounded-full bg-brand-900 shadow-sm"
+            style={{ translate: `${CONDITIONS.indexOf(condition) * 100}% 0` }}
+          ></span>
+          {CONDITIONS.map((id) => (
+            <button
+              key={id}
+              role="radio"
+              aria-checked={condition === id}
+              onClick={() => setCondition(id)}
+              className={`relative h-8 rounded-full text-sm font-medium cursor-pointer transition-colors duration-200 ${
+                condition === id ? 'text-white' : 'text-slate-700 hover:text-brand-900'
+              }`}
+            >
               {id === 'all' ? t('catalog.conditionAll') : t(`product.condition.${id}` as TranslationKey)}
             </button>
           ))}
@@ -409,7 +430,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
 
           <div className="space-y-4 lg:space-y-6 min-w-0">
             <div className="hidden lg:block">
-              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+              <h1 key={title} className="animate-rise-in text-3xl font-bold text-slate-900 tracking-tight">
                 {vendorName && <i className="fa-solid fa-store text-brand-900 text-2xl mr-3"></i>}
                 {title}
               </h1>
@@ -484,16 +505,17 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
                 }
               />
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 lg:gap-5">
+              <div ref={grid} className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 lg:gap-5">
                 {filteredProducts.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    isFavorite={wishlist.includes(product.id)}
-                    onOpen={onOpenProduct}
-                    onAddToCart={onAddToCart}
-                    onToggleWishlist={onToggleWishlist}
-                  />
+                  <div key={product.id} data-flip-id={product.id} className="flex flex-col [&>article]:flex-1">
+                    <ProductCard
+                      product={product}
+                      isFavorite={wishlist.includes(product.id)}
+                      onOpen={onOpenProduct}
+                      onAddToCart={onAddToCart}
+                      onToggleWishlist={onToggleWishlist}
+                    />
+                  </div>
                 ))}
               </div>
             )}
